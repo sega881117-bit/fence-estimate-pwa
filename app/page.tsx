@@ -14,6 +14,7 @@ const materials = {
 type Material = keyof typeof materials;
 type Wicket = 'adjacent' | 'separate' | 'none';
 type GateCount = number | '';
+type NumericKey = 'length' | 'fencePrice' | 'swingPrice' | 'slidingPrice' | 'swingCount' | 'slidingCount' | 'wicketPrice' | 'wicketCount' | 'deliveryPrice' | 'extension' | 'paint';
 type State = {
   mode: 'standard' | 'fence'; material: Material; height: string; length: number; fencePrice: number;
   swingEnabled: boolean; swingWidth: string; swingPrice: number; swingCount: GateCount;
@@ -28,9 +29,14 @@ const initial: State = {
   slidingEnabled: false, slidingWidth: '4', slidingPrice: 0, slidingCount: 1,
   wicket: 'adjacent', wicketPrice: 0, wicketCount: 1, deliveryPrice: 0, extension: 0, paint: 0,
 };
+const numericRules: Record<NumericKey, { min: number; integer?: boolean; blankWhenZero?: boolean }> = {
+  length: { min: 1, integer: true },
+  fencePrice: { min: 0, blankWhenZero: true }, swingPrice: { min: 0, blankWhenZero: true }, slidingPrice: { min: 0, blankWhenZero: true },
+  swingCount: { min: 1, integer: true }, slidingCount: { min: 1, integer: true }, wicketCount: { min: 1, integer: true }, wicketPrice: { min: 0, blankWhenZero: true },
+  deliveryPrice: { min: 0, blankWhenZero: true }, extension: { min: 0 }, paint: { min: 0 },
+};
 const money = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
 const gateCount = (value: GateCount) => typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
-const count = (value: string) => Math.max(1, Number(value) || 1);
 const fenceSpec = (material: Material, height: string) => {
   const h = height.replace('.', ',');
   const post = String(Number(height) + 1).replace('.', ',');
@@ -57,6 +63,7 @@ export default function Home() {
   const [result, setResult] = useState(false);
   const [error, setError] = useState('');
   const [shareMessage, setShareMessage] = useState('');
+  const [numericDrafts, setNumericDrafts] = useState<Partial<Record<NumericKey, string>>>({});
   useEffect(() => {
     const saved = localStorage.getItem('fence-estimate');
     if (saved) setS({ ...initial, ...JSON.parse(saved) });
@@ -196,23 +203,44 @@ export default function Home() {
       setShareMessage('Не удалось подготовить изображение сметы. Попробуйте ещё раз.');
     }
   };
-  const price = (label: string, value: number, key: 'fencePrice' | 'swingPrice' | 'slidingPrice' | 'wicketPrice' | 'deliveryPrice', placeholder: string) => <label>{label}<input type="number" min="0" placeholder={placeholder} value={value || ''} onChange={event => set(key, Number(event.target.value))} /><span className="hint">Необязательно: пустое поле использует цену прайса или правило расчёта.</span></label>;
-  const needsManualPrice = (width: string, value: number) => !['3', '3.5', '4', '5'].includes(width) && value <= 0;
-  const updateGateCount = (key: 'swingCount' | 'slidingCount', raw: string) => {
-    if (raw === '') { set(key, ''); return; }
+  const normalizeNumber = (key: NumericKey, raw: string) => {
+    const rule = numericRules[key];
     const value = Number(raw);
-    if (Number.isInteger(value) && value > 0) set(key, value);
+    if (!Number.isFinite(value)) return rule.min;
+    return Math.max(rule.min, rule.integer ? Math.trunc(value) : value);
   };
-  const normalizeGateCount = (key: 'swingCount' | 'slidingCount') => {
-    if (s[key] === '') set(key, 1);
+  const numericValue = (key: NumericKey) => {
+    if (numericDrafts[key] !== undefined) return numericDrafts[key];
+    const value = Number(s[key]);
+    return numericRules[key].blankWhenZero && value === 0 ? '' : String(value);
   };
+  const updateNumber = (key: NumericKey, raw: string) => {
+    setNumericDrafts(previous => ({ ...previous, [key]: raw }));
+    if (raw !== '' && Number.isFinite(Number(raw))) set(key, Number(raw) as State[typeof key]);
+  };
+  const normalizeInput = (key: NumericKey) => {
+    const raw = numericDrafts[key];
+    if (raw === undefined) return;
+    set(key, normalizeNumber(key, raw) as State[typeof key]);
+    setNumericDrafts(previous => { const next = { ...previous }; delete next[key]; return next; });
+  };
+  const normalizedState = () => {
+    const next = { ...s };
+    (Object.keys(numericRules) as NumericKey[]).forEach(key => {
+      if (numericDrafts[key] !== undefined) next[key] = normalizeNumber(key, numericDrafts[key]!) as never;
+    });
+    return next;
+  };
+  const numericInput = (label: string, key: NumericKey, placeholder?: string) => <label>{label}<input type="number" min={numericRules[key].min} step={numericRules[key].integer ? '1' : 'any'} inputMode={numericRules[key].integer ? 'numeric' : 'decimal'} placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /></label>;
+  const price = (label: string, key: 'fencePrice' | 'swingPrice' | 'slidingPrice' | 'wicketPrice' | 'deliveryPrice', placeholder: string) => <label>{label}<input type="number" min="0" step="any" inputMode="decimal" placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /><span className="hint">Необязательно: пустое поле использует цену прайса или правило расчёта.</span></label>;
+  const needsManualPrice = (width: string, value: number) => !['3', '3.5', '4', '5'].includes(width) && value <= 0;
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (s.swingCount === '') set('swingCount', 1);
-    if (s.slidingCount === '') set('slidingCount', 1);
-    if (s.length <= 0) { setError('Введите длину забора.'); return; }
-    if (s.mode === 'standard' && s.swingEnabled && needsManualPrice(s.swingWidth, s.swingPrice)) { setError(`Для распашных ворот шириной ${s.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
-    if (s.mode === 'standard' && s.slidingEnabled && needsManualPrice(s.slidingWidth, s.slidingPrice)) { setError(`Для откатных ворот шириной ${s.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
+    const next = normalizedState();
+    setS(next); setNumericDrafts({});
+    if (next.length <= 0) { setError('Введите длину забора.'); return; }
+    if (next.mode === 'standard' && next.swingEnabled && needsManualPrice(next.swingWidth, next.swingPrice)) { setError(`Для распашных ворот шириной ${next.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
+    if (next.mode === 'standard' && next.slidingEnabled && needsManualPrice(next.slidingWidth, next.slidingPrice)) { setError(`Для откатных ворот шириной ${next.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
     setError(''); setResult(true);
   };
   const widths = (value: string, key: 'swingWidth' | 'slidingWidth') => <label><span>Ширина, м</span><select value={value} onChange={event => set(key, event.target.value)}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>;
@@ -220,15 +248,15 @@ export default function Home() {
   if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button><article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map(item => <div className="estimate-row" role="row" key={item.title + item.quantity}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета будет подготовлена как изображение для отправки клиенту.</p></main>;
   return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header><section className="hero"><span>Предварительная смета</span><b>{money(quote.total)}</b></section><form onSubmit={submit}>
     <section className="card"><small>Режим расчёта</small><label>Выберите режим<select value={s.mode} onChange={event => set('mode', event.target.value as State['mode'])}><option value="standard">Полная смета</option><option value="fence">Только забор</option></select></label><p className="hint">{s.mode === 'fence' ? 'В этом режиме не учитываются ворота, калитка, доставка и допработы.' : 'Настройте состав и при необходимости замените цены прайса своими.'}</p></section>
-    <section className="card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', Object.keys(materials[material].prices)[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{Object.keys(materials[s.material].prices).map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label><label>Длина, м<input type="number" min="1" value={s.length} onChange={event => set('length', Number(event.target.value))} /></label></div>{price('Своя цена забора за метр, ₽', s.fencePrice, 'fencePrice', 'Например, 2800')}</section>
+    <section className="card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', Object.keys(materials[material].prices)[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{Object.keys(materials[s.material].prices).map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
     {s.mode === 'standard' && <><section className="card"><small>02 · Ворота и калитка</small>
       <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => { set('swingEnabled', event.target.checked); if (event.target.checked) set('swingWidth', '4'); }} /><span>Добавить распашные ворота</span></label>
-      {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}<label><span>Количество распашных ворот</span><input type="number" min="1" step="1" inputMode="numeric" value={s.swingCount} onChange={event => updateGateCount('swingCount', event.target.value)} onBlur={() => normalizeGateCount('swingCount')} /></label></div>{price('Своя цена распашных ворот за комплект, ₽', s.swingPrice, 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
+      {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, ₽', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label className="toggle-line"><input type="checkbox" checked={s.slidingEnabled} onChange={event => { set('slidingEnabled', event.target.checked); if (event.target.checked) set('slidingWidth', '4'); }} /><span>Добавить откатные ворота</span></label>
-      {s.slidingEnabled && <><div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}<label><span>Количество откатных ворот</span><input type="number" min="1" step="1" inputMode="numeric" value={s.slidingCount} onChange={event => updateGateCount('slidingCount', event.target.value)} onBlur={() => normalizeGateCount('slidingCount')} /></label></div>{price('Своя цена откатных ворот за комплект, ₽', s.slidingPrice, 'slidingPrice', 'По прайсу')}{needsManualPrice(s.slidingWidth, s.slidingPrice) && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
+      {s.slidingEnabled && <><div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, ₽', 'slidingPrice', 'По прайсу')}{needsManualPrice(s.slidingWidth, s.slidingPrice) && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label>Калитка<select value={s.wicket} onChange={event => set('wicket', event.target.value as Wicket)}><option value="adjacent">Калитка рядом с воротами</option><option value="separate">Калитка отдельно стоящая</option><option value="none">Нет калитки</option></select></label>
-      {s.wicket !== 'none' && <><label>Количество калиток<input type="number" min="1" value={s.wicketCount} onChange={event => set('wicketCount', count(event.target.value))} /></label>{price('Своя цена калитки за единицу, ₽', s.wicketPrice, 'wicketPrice', 'По прайсу')}</>}
-    </section><section className="card"><small>03 · Дополнительно</small><div className="grid"><label>Удлинение столбов, м<input type="number" min="0" value={s.extension} onChange={event => set('extension', Number(event.target.value))} /></label><label>Покраска каркаса, м<input type="number" min="0" value={s.paint} onChange={event => set('paint', Number(event.target.value))} /></label></div>{price('Своя стоимость доставки, ₽', s.deliveryPrice, 'deliveryPrice', 'По метражу')}</section></>}
-    {error && <p className="error">{error}</p>}<button className="primary">Показать результат →</button><button type="button" className="reset" onClick={() => setS(initial)}>Сбросить</button>
+      {s.wicket !== 'none' && <>{numericInput('Количество калиток', 'wicketCount')}{price('Своя цена калитки за единицу, ₽', 'wicketPrice', 'По прайсу')}</>}
+    </section><section className="card"><small>03 · Дополнительно</small><div className="grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}</div>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section></>}
+    {error && <p className="error">{error}</p>}<button className="primary">Показать результат →</button><button type="button" className="reset" onClick={() => { setS(initial); setNumericDrafts({}); }}>Сбросить</button>
   </form><p className="note">Без CRM и n8n · данные остаются на устройстве</p><details><summary>Как установить на iPhone</summary><p>Откройте сайт в Safari → «Поделиться» → «На экран Домой». После первого открытия расчёт работает офлайн.</p></details></main>;
 }
