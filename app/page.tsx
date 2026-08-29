@@ -37,7 +37,7 @@ export default function Home() {
   useEffect(() => {
     const saved = localStorage.getItem('fence-estimate');
     if (saved) setS({ ...initial, ...JSON.parse(saved) });
-    navigator.serviceWorker?.register('/sw.js');
+    navigator.serviceWorker?.register('/sw.js', { updateViaCache: 'none' }).then((registration) => registration.update());
   }, []);
   useEffect(() => localStorage.setItem('fence-estimate', JSON.stringify(s)), [s]);
   const set = <K extends keyof State>(key: K, value: State[K]) => setS(previous => ({ ...previous, [key]: value }));
