@@ -4,7 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Смета забора',
   description: 'Автономный калькулятор предварительной сметы забора.',
-  manifest: '/manifest.webmanifest',
+  manifest: './manifest.webmanifest',
 };
 
 export const viewport: Viewport = {
