@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
 
 const materials = {
   profile_one: { label: 'Профлист односторонний', prices: { '1.8': 1900, '2': 2100 } },
@@ -14,9 +15,9 @@ const materials = {
 type Material = keyof typeof materials;
 type Wicket = 'adjacent' | 'separate' | 'none';
 type GateCount = number | '';
-type NumericKey = 'length' | 'fencePrice' | 'swingPrice' | 'slidingPrice' | 'swingCount' | 'slidingCount' | 'wicketPrice' | 'wicketCount' | 'deliveryPrice' | 'extension' | 'paint';
+type NumericKey = 'length' | 'fencePrice' | 'targetTotal' | 'swingPrice' | 'slidingPrice' | 'swingCount' | 'slidingCount' | 'wicketPrice' | 'wicketCount' | 'deliveryPrice' | 'extension' | 'paint';
 type State = {
-  mode: 'standard' | 'fence'; material: Material; height: string; length: number; fencePrice: number;
+  mode: 'standard' | 'fence'; material: Material; height: string; length: number; fencePrice: number; targetTotal: number;
   swingEnabled: boolean; swingWidth: string; swingPrice: number; swingCount: GateCount;
   slidingEnabled: boolean; slidingWidth: string; slidingPrice: number; slidingCount: GateCount;
   wicket: Wicket; wicketPrice: number; wicketCount: number;
@@ -24,19 +25,35 @@ type State = {
 };
 type Line = { title: string; details: string[]; unit: string; quantity: number; unitPrice: number; amount: number; manual?: boolean; requiresReview?: boolean };
 const initial: State = {
-  mode: 'standard', material: 'profile_one', height: '2', length: 70, fencePrice: 0,
+  mode: 'standard', material: 'profile_one', height: '2', length: 70, fencePrice: 0, targetTotal: 0,
   swingEnabled: true, swingWidth: '4', swingPrice: 0, swingCount: 1,
   slidingEnabled: false, slidingWidth: '4', slidingPrice: 0, slidingCount: 1,
   wicket: 'adjacent', wicketPrice: 0, wicketCount: 1, deliveryPrice: 0, extension: 0, paint: 0,
 };
 const numericRules: Record<NumericKey, { min: number; integer?: boolean; blankWhenZero?: boolean }> = {
   length: { min: 1, integer: true },
-  fencePrice: { min: 0, blankWhenZero: true }, swingPrice: { min: 0, blankWhenZero: true }, slidingPrice: { min: 0, blankWhenZero: true },
+  fencePrice: { min: 0, blankWhenZero: true }, targetTotal: { min: 0, blankWhenZero: true }, swingPrice: { min: 0, blankWhenZero: true }, slidingPrice: { min: 0, blankWhenZero: true },
   swingCount: { min: 1, integer: true }, slidingCount: { min: 1, integer: true }, wicketCount: { min: 1, integer: true }, wicketPrice: { min: 0, blankWhenZero: true },
   deliveryPrice: { min: 0, blankWhenZero: true }, extension: { min: 0 }, paint: { min: 0 },
 };
-const money = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
+const money = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 2 }).format(value);
 const gateCount = (value: GateCount) => typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
+const fixedTotalFor = (s: State) => {
+  if (s.mode === 'fence') return 0;
+  let total = 0;
+  if (s.swingEnabled) {
+    const unit = s.swingPrice > 0 ? s.swingPrice : s.swingWidth === '5' ? 23000 : ['3', '3.5', '4'].includes(s.swingWidth) ? 17000 : 0;
+    total += unit * gateCount(s.swingCount);
+  }
+  if (s.slidingEnabled) {
+    const unit = s.slidingPrice > 0 ? s.slidingPrice : s.slidingWidth === '5' ? 75000 : ['3', '3.5', '4'].includes(s.slidingWidth) ? 69000 : 0;
+    total += unit * gateCount(s.slidingCount);
+  }
+  if (s.wicket !== 'none') total += (s.wicketPrice > 0 ? s.wicketPrice : s.wicket === 'separate' ? 15000 : 13000) * Math.max(1, s.wicketCount);
+  total += s.deliveryPrice > 0 ? s.deliveryPrice : s.length <= 60 ? 6000 : s.length <= 120 ? 8000 : 12000;
+  total += s.extension * 300 + s.paint * 250;
+  return total;
+};
 const fenceSpec = (material: Material, height: string) => {
   const h = height.replace('.', ',');
   const post = String(Number(height) + 1).replace('.', ',');
@@ -76,7 +93,8 @@ export default function Home() {
     const catalogFence = materials[s.material].prices[s.height as keyof typeof materials[typeof s.material]['prices']] as number;
     const fenceUnit = s.fencePrice > 0 ? s.fencePrice : catalogFence;
     const fence = fenceSpec(s.material, s.height);
-    list.push({ title: fence.title, details: fence.details, unit: 'м.п.', quantity: s.length, unitPrice: fenceUnit, amount: s.length * fenceUnit, manual: s.fencePrice > 0, requiresReview: s.fencePrice > 0 });
+    const fenceLine: Line = { title: fence.title, details: fence.details, unit: 'м.п.', quantity: s.length, unitPrice: fenceUnit, amount: s.length * fenceUnit, manual: s.fencePrice > 0, requiresReview: s.fencePrice > 0 };
+    list.push(fenceLine);
     if (s.mode === 'standard') {
       if (s.swingEnabled) {
         const unit = s.swingPrice > 0 ? s.swingPrice : s.swingWidth === '5' ? 23000 : ['3', '3.5', '4'].includes(s.swingWidth) ? 17000 : null;
@@ -97,7 +115,21 @@ export default function Home() {
       if (s.extension) list.push({ title: 'Удлинение столбов до 1,5 м', details: ['Дополнительная позиция, требует подтверждения объёма работ.'], unit: 'м.п.', quantity: s.extension, unitPrice: 300, amount: s.extension * 300, requiresReview: true });
       if (s.paint) list.push({ title: 'Покраска каркаса', details: ['Дополнительная позиция, требует подтверждения состава работ.'], unit: 'м.п.', quantity: s.paint, unitPrice: 250, amount: s.paint * 250, requiresReview: true });
     }
-    return { list, total: list.reduce((sum, item) => sum + item.amount, 0) };
+    const fixedTotal = list.slice(1).reduce((sum, item) => sum + item.amount, 0);
+    let targetError = '';
+    let targetApplied = false;
+    if (s.targetTotal > 0) {
+      const target = deriveFenceUnitPrice({ targetTotal: s.targetTotal, length: s.length, fixedTotal });
+      if (target.ok) {
+        fenceLine.unitPrice = target.unitPrice;
+        fenceLine.amount = target.fenceAmount;
+        fenceLine.manual = false;
+        fenceLine.requiresReview = false;
+        fenceLine.details = [...fence.details, `Цена рассчитана от желаемого итога: (${money(s.targetTotal)} − ${money(fixedTotal)}) ÷ ${s.length} м = ${money(target.unitPrice)}/м.п.`];
+        targetApplied = true;
+      } else targetError = target.message;
+    }
+    return { list, total: list.reduce((sum, item) => sum + item.amount, 0), targetError, targetApplied };
   }, [s]);
   const quoteImage = () => {
     const canvas = document.createElement('canvas');
@@ -239,6 +271,10 @@ export default function Home() {
     const next = normalizedState();
     setS(next); setNumericDrafts({});
     if (next.length <= 0) { setError('Введите длину забора.'); return; }
+    if (next.targetTotal > 0) {
+      const target = deriveFenceUnitPrice({ targetTotal: next.targetTotal, length: next.length, fixedTotal: fixedTotalFor(next) });
+      if (!target.ok) { setError(target.message); return; }
+    }
     if (next.mode === 'standard' && next.swingEnabled && needsManualPrice(next.swingWidth, next.swingPrice)) { setError(`Для распашных ворот шириной ${next.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
     if (next.mode === 'standard' && next.slidingEnabled && needsManualPrice(next.slidingWidth, next.slidingPrice)) { setError(`Для откатных ворот шириной ${next.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
     setError(''); setResult(true);
@@ -248,7 +284,7 @@ export default function Home() {
   if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button><article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map(item => <div className="estimate-row" role="row" key={item.title + item.quantity}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета будет подготовлена как изображение для отправки клиенту.</p></main>;
   return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header><section className="hero"><span>Предварительная смета</span><b>{money(quote.total)}</b></section><form onSubmit={submit}>
     <section className="card"><small>Режим расчёта</small><label>Выберите режим<select value={s.mode} onChange={event => set('mode', event.target.value as State['mode'])}><option value="standard">Полная смета</option><option value="fence">Только забор</option></select></label><p className="hint">{s.mode === 'fence' ? 'В этом режиме не учитываются ворота, калитка, доставка и допработы.' : 'Настройте состав и при необходимости замените цены прайса своими.'}</p></section>
-    <section className="card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', Object.keys(materials[material].prices)[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{Object.keys(materials[s.material].prices).map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
+    <section className="card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', Object.keys(materials[material].prices)[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{Object.keys(materials[s.material].prices).map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}{numericInput('Желаемый итог, ₽', 'targetTotal', 'Например, 100000')}{s.targetTotal > 0 && <p className="hint">Цена забора за метр будет рассчитана от желаемого итога; ручная цена забора временно не используется.</p>}{quote.targetError && <p className="error">{quote.targetError}</p>}</section>
     {s.mode === 'standard' && <><section className="card"><small>02 · Ворота и калитка</small>
       <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => { set('swingEnabled', event.target.checked); if (event.target.checked) set('swingWidth', '4'); }} /><span>Добавить распашные ворота</span></label>
       {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, ₽', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
