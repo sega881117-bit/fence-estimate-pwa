@@ -5,6 +5,7 @@
 /* Денежные колонки остаются цельными на узком экране iPhone. */
 .estimate-head,.estimate-row{grid-template-columns:minmax(0,2.45fr) minmax(0,.72fr) minmax(0,.55fr) minmax(0,1.16fr) minmax(0,1.25fr)!important}
 .estimate-row>span:nth-child(4),.estimate-row> b:last-child{white-space:nowrap!important;overflow-wrap:normal!important;letter-spacing:-.02em}
+.estimate-row>span,.estimate-row>b{align-self:center}
 @media(max-width:430px){.result{padding-inline:8px!important}.quote{border-radius:7px}}
 @media(max-width:390px){.app{padding-inline:12px}.estimate-head,.estimate-row{grid-template-columns:minmax(0,2.15fr) minmax(0,.55fr) minmax(0,.45fr) minmax(0,1.12fr) minmax(0,1.22fr)!important}.estimate-head span,.estimate-row>*,.estimate-total>*{padding-inline:3px}.estimate-row>span:nth-child(4),.estimate-row> b:last-child{font-size:8px;white-space:nowrap!important}}
 
