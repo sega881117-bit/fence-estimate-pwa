@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fence-estimate-v10';
+const CACHE_NAME = 'fence-estimate-v11';
 const APP_SHELL = ['/', '/manifest.webmanifest', '/favicon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -13,9 +13,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((names) => Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))))
-      .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
-      .then((clients) => Promise.all(clients.map((client) => client.navigate(client.url)))),
+      .then(() => self.clients.claim()),
   );
 });
 
