@@ -183,7 +183,7 @@ export default function Home() {
     context.fillStyle = '#071d55'; context.font = '700 14px Arial';
     const labels = ['Работы и материалы', 'Ед. изм.', 'Кол-во', 'Цена, руб.', 'Сумма, руб.'];
     let x = padding;
-    labels.forEach((label, index) => { context.textAlign = index === 0 ? 'left' : 'right'; context.fillText(label, x + (index === 0 ? 12 : columns[index] - 10), y + 32); x += columns[index]; });
+    labels.forEach((label, index) => { context.textAlign = index === 0 ? 'left' : 'center'; context.fillText(label, x + (index === 0 ? 12 : columns[index] / 2), y + 32); x += columns[index]; });
     y += headerHeight;
     const drawCellLines = (lines: string[], xPos: number, yPos: number, font: string, color: string, align: CanvasTextAlign = 'left', lineHeight = 20) => {
       context.font = font; context.fillStyle = color; context.textAlign = align;
@@ -198,13 +198,25 @@ export default function Home() {
       drawCellLines(details, padding + 22, y + 31 + title.length * 23, '15px Arial', '#34537d', 'left', 19);
       const values = [item.unit, String(item.quantity), money(item.unitPrice), money(item.amount)];
       let valueX = padding + columns[0];
-      values.forEach((value, index) => { valueX += columns[index + 1]; drawCellLines([value], valueX - 11, y + 30, index === 3 ? '700 15px Arial' : '15px Arial', '#071d55', 'right'); });
+      values.forEach((value, index) => {
+        const columnWidth = columns[index + 1];
+        drawCellLines([value], valueX + columnWidth / 2, y + rowHeight / 2 + 5, index === 3 ? '700 15px Arial' : '15px Arial', '#071d55', 'center');
+        valueX += columnWidth;
+      });
       y += rowHeight;
     });
     context.fillStyle = '#d8eafe'; context.fillRect(padding, y, tableWidth, 72);
-    context.fillStyle = '#071d55'; context.textAlign = 'left'; context.font = '700 21px Arial'; context.fillText('Итого', padding + 16, y + 43);
-    context.font = '15px Arial'; context.fillText('Включая материалы и работы', padding + 245, y + 43);
-    context.textAlign = 'right'; context.font = '700 23px Arial'; context.fillText(money(quote.total), padding + tableWidth - 16, y + 43);
+    const totalBaseline = y + 43;
+    context.font = '700 21px Arial'; const totalLabelWidth = context.measureText('Итого').width;
+    context.font = '15px Arial'; const totalNoteWidth = context.measureText('Включая материалы и работы').width;
+    context.font = '700 23px Arial'; const totalValueWidth = context.measureText(money(quote.total)).width;
+    const totalGap = 18;
+    let totalX = padding + (tableWidth - totalLabelWidth - totalNoteWidth - totalValueWidth - totalGap * 2) / 2;
+    context.fillStyle = '#071d55'; context.textAlign = 'left'; context.font = '700 21px Arial'; context.fillText('Итого', totalX, totalBaseline);
+    totalX += totalLabelWidth + totalGap;
+    context.font = '15px Arial'; context.fillText('Включая материалы и работы', totalX, totalBaseline);
+    totalX += totalNoteWidth + totalGap;
+    context.font = '700 23px Arial'; context.fillText(money(quote.total), totalX, totalBaseline);
     y += 72;
     context.fillStyle = '#f7fbff'; context.fillRect(padding, y, tableWidth, footerHeight);
     context.fillStyle = '#071d55'; context.textAlign = 'left'; context.font = '700 16px Arial'; context.fillText('Предварительная смета', padding + 18, y + 37);
