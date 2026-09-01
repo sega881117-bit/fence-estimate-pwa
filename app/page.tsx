@@ -127,7 +127,6 @@ export default function Home() {
         fenceLine.amount = target.fenceAmount;
         fenceLine.manual = false;
         fenceLine.requiresReview = false;
-        fenceLine.details = [...fence.details, `Цена рассчитана от желаемого итога: (${money(s.targetTotal)} − ${money(fixedTotal)}) ÷ ${s.length} м = ${money(target.unitPrice)}/м.п.`];
         targetApplied = true;
       } else targetError = target.message;
     }
