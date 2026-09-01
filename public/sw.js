@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fence-estimate-v19';
+const CACHE_NAME = 'fence-estimate-v20';
 const APP_SHELL = ['./', './manifest.webmanifest', './favicon.svg'];
 
 self.addEventListener('install', (event) => {
