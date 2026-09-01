@@ -15,26 +15,26 @@ const materials = {
 type Material = keyof typeof materials;
 type Wicket = 'adjacent' | 'separate' | 'none';
 type GateCount = number | '';
-type NumericKey = 'length' | 'fencePrice' | 'targetTotal' | 'swingPrice' | 'slidingPrice' | 'swingCount' | 'slidingCount' | 'wicketPrice' | 'wicketCount' | 'deliveryPrice' | 'extension' | 'paint';
+type NumericKey = 'length' | 'fencePrice' | 'targetTotal' | 'swingPrice' | 'slidingPrice' | 'swingCount' | 'slidingCount' | 'wicketPrice' | 'wicketCount' | 'deliveryPrice' | 'extension' | 'paint' | 'gravel';
 type State = {
   mode: 'standard' | 'fence'; material: Material; height: string; length: number; fencePrice: number; targetTotal: number;
   swingEnabled: boolean; swingWidth: string; swingPrice: number; swingCount: GateCount;
   slidingEnabled: boolean; slidingWidth: string; slidingPrice: number; slidingCount: GateCount;
   wicket: Wicket; wicketPrice: number; wicketCount: number;
-  deliveryPrice: number; extension: number; paint: number;
+  deliveryPrice: number; extension: number; paint: number; gravel: number;
 };
 type Line = { title: string; details: string[]; unit: string; quantity: number; unitPrice: number; amount: number; manual?: boolean; requiresReview?: boolean };
 const initial: State = {
   mode: 'standard', material: 'profile_one', height: '2', length: 70, fencePrice: 0, targetTotal: 0,
   swingEnabled: true, swingWidth: '4', swingPrice: 0, swingCount: 1,
   slidingEnabled: false, slidingWidth: '4', slidingPrice: 0, slidingCount: 1,
-  wicket: 'adjacent', wicketPrice: 0, wicketCount: 1, deliveryPrice: 0, extension: 0, paint: 0,
+  wicket: 'adjacent', wicketPrice: 0, wicketCount: 1, deliveryPrice: 0, extension: 0, paint: 0, gravel: 0,
 };
 const numericRules: Record<NumericKey, { min: number; integer?: boolean; blankWhenZero?: boolean }> = {
   length: { min: 1, integer: true },
   fencePrice: { min: 0, blankWhenZero: true }, targetTotal: { min: 0, blankWhenZero: true }, swingPrice: { min: 0, blankWhenZero: true }, slidingPrice: { min: 0, blankWhenZero: true },
   swingCount: { min: 1, integer: true }, slidingCount: { min: 1, integer: true }, wicketCount: { min: 1, integer: true }, wicketPrice: { min: 0, blankWhenZero: true },
-  deliveryPrice: { min: 0, blankWhenZero: true }, extension: { min: 0 }, paint: { min: 0 },
+  deliveryPrice: { min: 0, blankWhenZero: true }, extension: { min: 0 }, paint: { min: 0 }, gravel: { min: 0 },
 };
 const money = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
 const gateCount = (value: GateCount) => typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
@@ -52,7 +52,7 @@ const fixedTotalFor = (s: State) => {
   }
   if (s.wicket !== 'none') total += (s.wicketPrice > 0 ? s.wicketPrice : s.wicket === 'separate' ? 15000 : 13000) * Math.max(1, s.wicketCount);
   total += delivery;
-  total += s.extension * 300 + s.paint * 250;
+  total += s.extension * 300 + s.paint * 250 + s.gravel * 300;
   return total;
 };
 const fenceSpec = (material: Material, height: string) => {
@@ -112,6 +112,7 @@ export default function Home() {
       }
       if (s.extension) list.push({ title: 'Удлинение столбов до 1,5 м', details: ['Дополнительная позиция, требует подтверждения объёма работ.'], unit: 'м.п.', quantity: s.extension, unitPrice: 300, amount: s.extension * 300, requiresReview: true });
       if (s.paint) list.push({ title: 'Покраска каркаса', details: ['Дополнительная позиция, требует подтверждения состава работ.'], unit: 'м.п.', quantity: s.paint, unitPrice: 250, amount: s.paint * 250, requiresReview: true });
+      if (s.gravel) list.push({ title: 'Забутовка щебнем на всю глубину', details: [], unit: 'м.п.', quantity: s.gravel, unitPrice: 300, amount: s.gravel * 300 });
     }
     const automaticDelivery = s.length <= 60 ? 6000 : s.length <= 120 ? 8000 : 12000;
     const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : automaticDelivery;
@@ -305,7 +306,7 @@ export default function Home() {
       {s.slidingEnabled && <><div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, ₽', 'slidingPrice', 'По прайсу')}{needsManualPrice(s.slidingWidth, s.slidingPrice) && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label>Калитка<select value={s.wicket} onChange={event => set('wicket', event.target.value as Wicket)}><option value="adjacent">Калитка рядом с воротами</option><option value="separate">Калитка отдельно стоящая</option><option value="none">Нет калитки</option></select></label>
       {s.wicket !== 'none' && <>{numericInput('Количество калиток', 'wicketCount')}{price('Своя цена калитки за единицу, ₽', 'wicketPrice', 'По прайсу')}</>}
-    </section><section className="card"><small>03 · Дополнительно</small><div className="grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}</div>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section></>}
+    </section><section className="card"><small>03 · Дополнительно</small><div className="grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}{numericInput('Забутовка щебнем на всю глубину, м', 'gravel')}</div>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section></>}
     {s.mode === 'fence' && <section className="card"><small>02 · Доставка</small>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section>}
     {error && <p className="error">{error}</p>}<button className="primary">Показать результат →</button><button type="button" className="reset" onClick={() => { setS(initial); setNumericDrafts({}); }}>Сбросить</button>
   </form><p className="note">Без CRM и n8n · данные остаются на устройстве</p><details><summary>Как установить на iPhone</summary><p>Откройте сайт в Safari → «Поделиться» → «На экран Домой». После первого открытия расчёт работает офлайн.</p></details></main>;
