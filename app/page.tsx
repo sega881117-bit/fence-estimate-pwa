@@ -21,7 +21,7 @@ type State = {
   extraSections: FenceSection[]; targetSection: string;
   mode: 'standard' | 'fence'; material: Material; height: string; length: number; fencePrice: number; targetTotal: number;
   swingEnabled: boolean; swingWidth: string; swingPrice: number; swingCount: GateCount;
-  slidingEnabled: boolean; slidingWidth: string; slidingPrice: number; slidingCount: GateCount;
+  slidingEnabled: boolean; slidingAutomation: boolean; slidingWidth: string; slidingPrice: number; slidingCount: GateCount;
   wicket: Wicket; wicketPrice: number; wicketCount: number;
   deliveryPrice: number; extension: number; paint: number; gravel: number;
 };
@@ -30,7 +30,7 @@ const initial: State = {
   extraSections: [], targetSection: 'first',
   mode: 'standard', material: 'profile_one', height: '2', length: 70, fencePrice: 0, targetTotal: 0,
   swingEnabled: true, swingWidth: '4', swingPrice: 0, swingCount: 1,
-  slidingEnabled: false, slidingWidth: '4', slidingPrice: 0, slidingCount: 1,
+  slidingEnabled: false, slidingAutomation: false, slidingWidth: '4', slidingPrice: 0, slidingCount: 1,
   wicket: 'adjacent', wicketPrice: 0, wicketCount: 1, deliveryPrice: 0, extension: 0, paint: 0, gravel: 0,
 };
 const numericRules: Record<NumericKey, { min: number; integer?: boolean; blankWhenZero?: boolean }> = {
@@ -50,6 +50,11 @@ const targetFor = (s: State, fixedTotal: number) => {
   const otherFences = sections.filter(section => section.id !== selected.id).reduce((sum, section) => sum + Number(section.length) * sectionUnit(section), 0);
   return deriveFenceUnitPrice({ targetTotal: s.targetTotal, length: Number(selected.length), fixedTotal: fixedTotal + otherFences });
 };
+const slidingUnitFor = (s: State): number | null => {
+  if (s.slidingPrice > 0) return s.slidingPrice;
+  if (s.slidingAutomation) return s.slidingWidth === '4' ? 100000 : s.slidingWidth === '5' ? 110000 : null;
+  return s.slidingWidth === '5' ? 75000 : ['3', '3.5', '4'].includes(s.slidingWidth) ? 69000 : null;
+};
 const fixedTotalFor = (s: State) => {
   const length = totalLengthFor(s);
   const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : length <= 60 ? 6000 : length <= 120 ? 8000 : 12000;
@@ -60,7 +65,7 @@ const fixedTotalFor = (s: State) => {
     total += unit * gateCount(s.swingCount);
   }
   if (s.slidingEnabled) {
-    const unit = s.slidingPrice > 0 ? s.slidingPrice : s.slidingWidth === '5' ? 75000 : ['3', '3.5', '4'].includes(s.slidingWidth) ? 69000 : 0;
+    const unit = slidingUnitFor(s) ?? 0;
     total += unit * gateCount(s.slidingCount);
   }
   if (s.wicket !== 'none') total += (s.wicketPrice > 0 ? s.wicketPrice : s.wicket === 'separate' ? 15000 : 13000) * Math.max(1, s.wicketCount);
@@ -117,8 +122,8 @@ export default function Home() {
         if (unit !== null) list.push({ title: 'Каркас распашных ворот ' + s.swingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + ' м, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', 'столбы 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'изнутри запирающее устройство «гусь» с проушинами для замка;', '2 нижних стопора;', 'петли 25×120 мм.'], unit: 'шт.', quantity: gateCount(s.swingCount), unitPrice: unit, amount: unit * gateCount(s.swingCount), manual: s.swingPrice > 0, requiresReview: s.swingPrice > 0 || Number(s.swingWidth) > 5 });
       }
       if (s.slidingEnabled) {
-        const unit = s.slidingPrice > 0 ? s.slidingPrice : s.slidingWidth === '5' ? 75000 : ['3', '3.5', '4'].includes(s.slidingWidth) ? 69000 : null;
-        if (unit !== null) list.push({ title: 'Откатные ворота ' + s.slidingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + ' м, с ручным механизмом.', details: ['рама из профтрубы 60×40, толщина стенки 1,5 мм; несущая балка; роликовые каретки;', 'концевой разгрузочный ролик; нижний улавливатель;', 'направляющая с роликами; верхний улавливатель; заглушки;', 'опорный столб; ответный столб;', 'фундамент для роликовых кареток: сваи 89, 2 шт. на тумбу.'], unit: 'шт.', quantity: gateCount(s.slidingCount), unitPrice: unit, amount: unit * gateCount(s.slidingCount), manual: s.slidingPrice > 0, requiresReview: s.slidingPrice > 0 || Number(s.slidingWidth) > 5 });
+        const unit = slidingUnitFor(s);
+        if (unit !== null) list.push({ title: 'Откатные ворота ' + s.slidingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + (s.slidingAutomation ? ' м, с автоматическим приводом RTech 1000.' : ' м, с ручным механизмом.'), details: [...(s.slidingAutomation ? ['Автоматика RTech 1000: мотор, 2 пульта, сигнальная лампа;'] : []), 'рама из профтрубы 60×40, толщина стенки 1,5 мм; несущая балка; роликовые каретки;', 'концевой разгрузочный ролик; нижний улавливатель;', 'направляющая с роликами; верхний улавливатель; заглушки;', 'опорный столб; ответный столб;', s.slidingAutomation ? 'фундамент для роликовых кареток: сваи 89 мм, длина 2 м, 2 шт. на тумбу.' : 'фундамент для роликовых кареток: сваи 89, 2 шт. на тумбу.'], unit: 'шт.', quantity: gateCount(s.slidingCount), unitPrice: unit, amount: unit * gateCount(s.slidingCount), manual: s.slidingPrice > 0, requiresReview: s.slidingPrice > 0 || Number(s.slidingWidth) > 5 });
       }
       if (s.wicket !== 'none') {
         const unit = s.wicketPrice > 0 ? s.wicketPrice : s.wicket === 'separate' ? 15000 : 13000;
@@ -306,7 +311,7 @@ export default function Home() {
       if (!target.ok) { setError(target.message); return; }
     }
     if (next.mode === 'standard' && next.swingEnabled && needsManualPrice(next.swingWidth, next.swingPrice)) { setError(`Для распашных ворот шириной ${next.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
-    if (next.mode === 'standard' && next.slidingEnabled && needsManualPrice(next.slidingWidth, next.slidingPrice)) { setError(`Для откатных ворот шириной ${next.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
+    if (next.mode === 'standard' && next.slidingEnabled && slidingUnitFor(next) === null) { setError(`Для откатных ворот шириной ${next.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
     setError(''); setResult(true);
   };
   const widths = (value: string, key: 'swingWidth' | 'slidingWidth') => <label><span>Ширина, м</span><select value={value} onChange={event => set(key, event.target.value)}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>;
@@ -338,7 +343,7 @@ export default function Home() {
       <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => { set('swingEnabled', event.target.checked); if (event.target.checked) set('swingWidth', '4'); }} /><span>Добавить распашные ворота</span></label>
       {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, ₽', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label className="toggle-line"><input type="checkbox" checked={s.slidingEnabled} onChange={event => { set('slidingEnabled', event.target.checked); if (event.target.checked) set('slidingWidth', '4'); }} /><span>Добавить откатные ворота</span></label>
-      {s.slidingEnabled && <><div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, ₽', 'slidingPrice', 'По прайсу')}{needsManualPrice(s.slidingWidth, s.slidingPrice) && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
+      {s.slidingEnabled && <><label className="toggle-line"><input type="checkbox" checked={s.slidingAutomation} onChange={event => set('slidingAutomation', event.target.checked)} /><span>Автоматика RTech 1000</span></label>{s.slidingAutomation && <p className="hint">Ворота с автоматикой: 4 м — 100 000 ₽, 5 м — 110 000 ₽ за штуку.</p>}<div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, ₽', 'slidingPrice', 'По прайсу')}{slidingUnitFor(s) === null && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label>Калитка<select value={s.wicket} onChange={event => set('wicket', event.target.value as Wicket)}><option value="adjacent">Калитка рядом с воротами</option><option value="separate">Калитка отдельно стоящая</option><option value="none">Нет калитки</option></select></label>
       {s.wicket !== 'none' && <>{numericInput('Количество калиток', 'wicketCount')}{price('Своя цена калитки за единицу, ₽', 'wicketPrice', 'По прайсу')}</>}
     </section><section className="card"><small>03 · Дополнительно</small><div className="grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}{numericInput('Забутовка щебнем на всю глубину, м', 'gravel')}</div>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section></>}

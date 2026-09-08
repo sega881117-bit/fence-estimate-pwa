@@ -31,3 +31,24 @@ assert.ok(run('calculate({ ...' + input + ", targetTotal: 10000 })").targetError
 assert.equal(run('calculate({ ...initial, length: 70 })').total, 185000);
 assert.equal(run("calculate({ ...initial, length: 40, extraSections: [{ id: 'second', material: 'picket_single', height: '2', length: 90, fencePrice: 3000 }] })").list.at(-1).amount, 12000);
 console.log('PASS: multiple materials, heights, delivery tiers, manual prices, target totals, legacy single section');
+
+for (const [width, expected] of [['4', 100000], ['5', 110000]]) {
+  const options = "{ ...initial, slidingEnabled: true, slidingAutomation: true, slidingWidth: '" + width + "', slidingCount: 2 }";
+  const quote = run('calculate(' + options + ')');
+  const gates = quote.list.find(item => item.title.startsWith('Откатные'));
+  assert.equal(gates.unitPrice, expected);
+  assert.equal(gates.amount, expected * 2);
+  assert.match(gates.title, /RTech 1000/);
+  assert.match(gates.details.join(' '), /2 пульта, сигнальная лампа/);
+  assert.match(gates.details.join(' '), /длина 2 м/);
+  assert.equal(run('fixedTotalFor(' + options + ')'), quote.total - quote.list[0].amount);
+  const target = run('calculate({ ...' + options + ', targetTotal: 500000 })');
+  assert.equal(target.total, 500000);
+  assert.equal(target.list.find(item => item.title.startsWith('Откатные')).amount, expected * 2);
+}
+assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: false, slidingWidth: '4' })"), 69000);
+assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: false, slidingWidth: '5' })"), 75000);
+assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: true, slidingWidth: '4.5' })"), null);
+assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: true, slidingWidth: '4.5', slidingPrice: 105000 })"), 105000);
+assert.equal(run("calculate({ ...initial, slidingEnabled: false, slidingAutomation: true })").total, run('calculate(initial)').total);
+console.log('PASS: automated sliding gates, quantities, description, manual prices and target totals');
