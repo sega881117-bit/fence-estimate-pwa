@@ -15,8 +15,10 @@ const materials = {
 type Material = keyof typeof materials;
 type Wicket = 'adjacent' | 'separate' | 'none';
 type GateCount = number | '';
+type FenceSection = { id: string; material: Material; height: string; length: number | ''; fencePrice: number | '' };
 type NumericKey = 'length' | 'fencePrice' | 'targetTotal' | 'swingPrice' | 'slidingPrice' | 'swingCount' | 'slidingCount' | 'wicketPrice' | 'wicketCount' | 'deliveryPrice' | 'extension' | 'paint' | 'gravel';
 type State = {
+  extraSections: FenceSection[]; targetSection: string;
   mode: 'standard' | 'fence'; material: Material; height: string; length: number; fencePrice: number; targetTotal: number;
   swingEnabled: boolean; swingWidth: string; swingPrice: number; swingCount: GateCount;
   slidingEnabled: boolean; slidingWidth: string; slidingPrice: number; slidingCount: GateCount;
@@ -25,6 +27,7 @@ type State = {
 };
 type Line = { title: string; details: string[]; unit: string; quantity: number; unitPrice: number; amount: number; manual?: boolean; requiresReview?: boolean };
 const initial: State = {
+  extraSections: [], targetSection: 'first',
   mode: 'standard', material: 'profile_one', height: '2', length: 70, fencePrice: 0, targetTotal: 0,
   swingEnabled: true, swingWidth: '4', swingPrice: 0, swingCount: 1,
   slidingEnabled: false, slidingWidth: '4', slidingPrice: 0, slidingCount: 1,
@@ -38,8 +41,18 @@ const numericRules: Record<NumericKey, { min: number; integer?: boolean; blankWh
 };
 const money = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
 const gateCount = (value: GateCount) => typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
+const sectionsFor = (s: State): FenceSection[] => [{ id: 'first', material: s.material, height: s.height, length: s.length, fencePrice: s.fencePrice }, ...s.extraSections];
+const totalLengthFor = (s: State) => sectionsFor(s).reduce((sum, section) => sum + Number(section.length), 0);
+const sectionUnit = (section: FenceSection) => Number(section.fencePrice) > 0 ? Number(section.fencePrice) : (materials[section.material].prices as Record<string, number>)[section.height];
+const targetFor = (s: State, fixedTotal: number) => {
+  const sections = sectionsFor(s);
+  const selected = sections.find(section => section.id === s.targetSection) || sections[0];
+  const otherFences = sections.filter(section => section.id !== selected.id).reduce((sum, section) => sum + Number(section.length) * sectionUnit(section), 0);
+  return deriveFenceUnitPrice({ targetTotal: s.targetTotal, length: Number(selected.length), fixedTotal: fixedTotal + otherFences });
+};
 const fixedTotalFor = (s: State) => {
-  const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : s.length <= 60 ? 6000 : s.length <= 120 ? 8000 : 12000;
+  const length = totalLengthFor(s);
+  const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : length <= 60 ? 6000 : length <= 120 ? 8000 : 12000;
   if (s.mode === 'fence') return delivery;
   let total = 0;
   if (s.swingEnabled) {
@@ -89,13 +102,15 @@ export default function Home() {
   }, []);
   useEffect(() => localStorage.setItem('fence-estimate', JSON.stringify(s)), [s]);
   const set = <K extends keyof State>(key: K, value: State[K]) => setS(previous => ({ ...previous, [key]: value }));
+  const updateSection = (id: string, changes: Partial<FenceSection>) => setS(previous => ({ ...previous, extraSections: previous.extraSections.map(section => section.id === id ? { ...section, ...changes } : section) }));
   const quote = useMemo(() => {
     const list: Line[] = [];
-    const catalogFence = materials[s.material].prices[s.height as keyof typeof materials[typeof s.material]['prices']] as number;
-    const fenceUnit = s.fencePrice > 0 ? s.fencePrice : catalogFence;
-    const fence = fenceSpec(s.material, s.height);
-    const fenceLine: Line = { title: fence.title, details: fence.details, unit: 'м.п.', quantity: s.length, unitPrice: fenceUnit, amount: s.length * fenceUnit, manual: s.fencePrice > 0, requiresReview: s.fencePrice > 0 };
-    list.push(fenceLine);
+    const sections = sectionsFor(s);
+    for (const section of sections) {
+      const fence = fenceSpec(section.material, section.height);
+      const unit = sectionUnit(section);
+      list.push({ ...fence, unit: 'м.п.', quantity: Number(section.length), unitPrice: unit, amount: Number(section.length) * unit, manual: Number(section.fencePrice) > 0 });
+    }
     if (s.mode === 'standard') {
       if (s.swingEnabled) {
         const unit = s.swingPrice > 0 ? s.swingPrice : s.swingWidth === '5' ? 23000 : ['3', '3.5', '4'].includes(s.swingWidth) ? 17000 : null;
@@ -114,15 +129,17 @@ export default function Home() {
       if (s.paint) list.push({ title: 'Покраска каркаса', details: ['Дополнительная позиция, требует подтверждения состава работ.'], unit: 'м.п.', quantity: s.paint, unitPrice: 250, amount: s.paint * 250, requiresReview: true });
       if (s.gravel) list.push({ title: 'Забутовка щебнем на всю глубину', details: [], unit: 'м.п.', quantity: s.gravel, unitPrice: 300, amount: s.gravel * 300 });
     }
-    const automaticDelivery = s.length <= 60 ? 6000 : s.length <= 120 ? 8000 : 12000;
+    const totalLength = totalLengthFor(s);
+    const automaticDelivery = totalLength <= 60 ? 6000 : totalLength <= 120 ? 8000 : 12000;
     const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : automaticDelivery;
     list.push({ title: 'Доставка', details: [], unit: 'шт.', quantity: 1, unitPrice: delivery, amount: delivery, manual: s.deliveryPrice > 0, requiresReview: s.deliveryPrice > 0 });
-    const fixedTotal = list.slice(1).reduce((sum, item) => sum + item.amount, 0);
+    const fixedTotal = list.slice(sections.length).reduce((sum, item) => sum + item.amount, 0);
     let targetError = '';
     let targetApplied = false;
     if (s.targetTotal > 0) {
-      const target = deriveFenceUnitPrice({ targetTotal: s.targetTotal, length: s.length, fixedTotal });
+      const target = targetFor(s, fixedTotal);
       if (target.ok) {
+        const fenceLine = list[Math.max(0, sections.findIndex(section => section.id === s.targetSection))];
         fenceLine.unitPrice = target.unitPrice;
         fenceLine.amount = target.fenceAmount;
         fenceLine.manual = false;
@@ -283,9 +300,9 @@ export default function Home() {
     event.preventDefault();
     const next = normalizedState();
     setS(next); setNumericDrafts({});
-    if (next.length <= 0) { setError('Введите длину забора.'); return; }
+    if (sectionsFor(next).some(section => !Number.isFinite(Number(section.length)) || Number(section.length) <= 0)) { setError('Введите длину каждого участка забора больше нуля.'); return; }
     if (next.targetTotal > 0) {
-      const target = deriveFenceUnitPrice({ targetTotal: next.targetTotal, length: next.length, fixedTotal: fixedTotalFor(next) });
+      const target = targetFor(next, fixedTotalFor(next));
       if (!target.ok) { setError(target.message); return; }
     }
     if (next.mode === 'standard' && next.swingEnabled && needsManualPrice(next.swingWidth, next.swingPrice)) { setError(`Для распашных ворот шириной ${next.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
@@ -294,10 +311,29 @@ export default function Home() {
   };
   const widths = (value: string, key: 'swingWidth' | 'slidingWidth') => <label><span>Ширина, м</span><select value={value} onChange={event => set(key, event.target.value)}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>;
 
-  if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button><article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map(item => <div className="estimate-row" role="row" key={item.title + item.quantity}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета будет подготовлена как изображение для отправки клиенту.</p></main>;
+  if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button><article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map((item, index) => <div className="estimate-row" role="row" key={index}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета будет подготовлена как изображение для отправки клиенту.</p></main>;
   return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header><section className="hero"><span>Предварительная смета</span><b>{money(quote.total)}</b></section><form onSubmit={submit}>
     <section className="card"><small>Режим расчёта</small><label>Выберите режим<select value={s.mode} onChange={event => set('mode', event.target.value as State['mode'])}><option value="standard">Полная смета</option><option value="fence">Только забор</option></select></label><p className="hint">{s.mode === 'fence' ? 'В этом режиме не учитываются ворота, калитка и допработы. Доставка рассчитывается по длине участка.' : 'Настройте состав и при необходимости замените цены прайса своими.'}</p></section>
-    <section className="card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', Object.keys(materials[material].prices)[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{Object.keys(materials[s.material].prices).map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}{numericInput('Желаемый итог, ₽', 'targetTotal', 'Например, 100000')}{s.targetTotal > 0 && <p className="hint">Цена забора за метр будет рассчитана от желаемого итога; ручная цена забора временно не используется.</p>}{quote.targetError && <p className="error">{quote.targetError}</p>}</section>
+    <section className="card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', Object.keys(materials[material].prices)[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{Object.keys(materials[s.material].prices).map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
+    {s.extraSections.map((section, index) => <section className="card" key={section.id}>
+      <small>01 · Участок забора {index + 2}</small>
+      <label>Материал<select value={section.material} onChange={event => { const material = event.target.value as Material; updateSection(section.id, { material, height: Object.keys(materials[material].prices).includes(section.height) ? section.height : Object.keys(materials[material].prices)[0] }); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
+      <div className="grid">
+        <label>Высота, м<select value={section.height} onChange={event => updateSection(section.id, { height: event.target.value })}>{Object.keys(materials[section.material].prices).map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>
+        <label>Длина, м<input type="number" min="1" step="1" inputMode="numeric" required value={section.length} onChange={event => updateSection(section.id, { length: event.target.value === '' ? '' : Number(event.target.value) })} /></label>
+      </div>
+      <label>Своя цена забора за метр, ₽<input type="number" min="0" step="any" inputMode="decimal" placeholder="По прайсу" value={section.fencePrice || ''} onChange={event => updateSection(section.id, { fencePrice: event.target.value === '' ? '' : Number(event.target.value) })} /><span className="hint">Необязательно: пустое поле использует цену прайса.</span></label>
+      <button type="button" className="reset" onClick={() => setS(previous => ({ ...previous, extraSections: previous.extraSections.filter(item => item.id !== section.id), targetSection: previous.targetSection === section.id ? 'first' : previous.targetSection }))}>Удалить участок {index + 2}</button>
+    </section>)}
+    <button type="button" className="reset" onClick={() => setS(previous => ({ ...previous, extraSections: [...previous.extraSections, { id: crypto.randomUUID(), material: 'picket_single', height: '2', length: '', fencePrice: '' }] }))}>+ Добавить участок забора</button>
+    <section className="card"><small>Общий расчёт</small><p className="hint">Общая длина: {totalLengthFor(s)} м. Доставка рассчитывается один раз на все участки.</p>
+      {numericInput('Желаемый итог всей сметы, ₽', 'targetTotal', 'Например, 100000')}
+      {s.targetTotal > 0 && <>
+        {s.extraSections.length > 0 && <label>Рассчитать цену за метр для участка<select value={s.targetSection} onChange={event => set('targetSection', event.target.value)}>{sectionsFor(s).map((section, index) => <option key={section.id} value={section.id}>Участок {index + 1} — {materials[section.material].label}</option>)}</select></label>}
+        <p className="hint">Цена выбранного участка рассчитывается из остатка желаемого итога. Цены остальных участков сохраняются.</p>
+      </>}
+      {quote.targetError && <p className="error">{quote.targetError}</p>}
+    </section>
     {s.mode === 'standard' && <><section className="card"><small>02 · Ворота и калитка</small>
       <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => { set('swingEnabled', event.target.checked); if (event.target.checked) set('swingWidth', '4'); }} /><span>Добавить распашные ворота</span></label>
       {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, ₽', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}

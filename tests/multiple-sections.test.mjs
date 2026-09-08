@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
+
+// Exercise the actual component calculation, including all shared add-ons.
+const source = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
+const helpers = source.slice(source.indexOf('const materials ='), source.indexOf('export default function Home'));
+const calculation = source.split('const quote = useMemo(() => {')[1].split('}, [s]);')[0];
+const context = vm.createContext({ deriveFenceUnitPrice });
+vm.runInContext(ts.transpileModule(helpers + '\nfunction calculate(s: State) {' + calculation + '\n}', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, context);
+const run = expression => JSON.parse(JSON.stringify(vm.runInContext(expression, context)));
+const input = "{ ...initial, length: 40, extraSections: [{ id: 'second', material: 'picket_single', height: '1.8', length: 30, fencePrice: '' }] }";
+const mixed = run('calculate(' + input + ')');
+assert.equal(mixed.list[0].amount, 84000);
+assert.equal(mixed.list[1].amount, 64500);
+assert.match(mixed.list[1].title, /1,8/);
+assert.equal(mixed.list.filter(item => item.title === 'Доставка').length, 1);
+assert.equal(mixed.list.at(-1).amount, 8000);
+assert.equal(mixed.total, 186500);
+assert.equal(run('calculate({ ...' + input + ", mode: 'fence' })").total, 156500);
+assert.equal(run('calculate({ ...' + input + ", deliveryPrice: 7000 })").total, 185500);
+const target = run('calculate({ ...' + input + ", targetTotal: 200000, targetSection: 'second' })");
+assert.equal(target.total, 200000);
+assert.equal(target.list[0].amount, 84000);
+assert.equal(target.list[1].amount, 78000);
+assert.equal(target.list[1].unitPrice, 2600);
+assert.equal(run('calculate({ ...' + input + ", targetTotal: 200000, targetSection: 'first' })").total, 200000);
+assert.ok(run('calculate({ ...' + input + ", targetTotal: 10000 })").targetError);
+assert.equal(run('calculate({ ...initial, length: 70 })').total, 185000);
+assert.equal(run("calculate({ ...initial, length: 40, extraSections: [{ id: 'second', material: 'picket_single', height: '2', length: 90, fencePrice: 3000 }] })").list.at(-1).amount, 12000);
+console.log('PASS: multiple materials, heights, delivery tiers, manual prices, target totals, legacy single section');
