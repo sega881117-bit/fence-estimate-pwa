@@ -130,7 +130,7 @@ export default function Home() {
         const separate = s.wicket === 'separate';
         list.push({ title: separate ? 'Каркас отдельно стоящей калитки 1×' + s.height.replace('.', ',') + ' м, на двух столбах, открывается наружу.' : 'Каркас рядом стоящей калитки 1×' + s.height.replace('.', ',') + ' м, на одном столбе, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', separate ? 'два столба 80×80, толщина стенки 3 мм;' : 'один столб 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'петли 25×120 мм;', 'врезной замок в подарок 🎁.'], unit: 'шт.', quantity: Math.max(1, s.wicketCount), unitPrice: unit, amount: unit * Math.max(1, s.wicketCount), manual: s.wicketPrice > 0, requiresReview: s.wicketPrice > 0 });
       }
-      if (s.extension) list.push({ title: 'Удлинение столбов до 1,5 м', details: ['Дополнительная позиция, требует подтверждения объёма работ.'], unit: 'м.п.', quantity: s.extension, unitPrice: 300, amount: s.extension * 300, requiresReview: true });
+      if (s.extension) list.push({ title: 'Удлинение столбов до 1,5 м', details: [], unit: 'м.п.', quantity: s.extension, unitPrice: 300, amount: s.extension * 300, requiresReview: true });
       if (s.paint) list.push({ title: 'Покраска каркаса', details: ['Дополнительная позиция, требует подтверждения состава работ.'], unit: 'м.п.', quantity: s.paint, unitPrice: 250, amount: s.paint * 250, requiresReview: true });
       if (s.gravel) list.push({ title: 'Забутовка щебнем на всю глубину', details: [], unit: 'м.п.', quantity: s.gravel, unitPrice: 300, amount: s.gravel * 300 });
     }
