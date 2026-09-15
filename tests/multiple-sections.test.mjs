@@ -52,3 +52,15 @@ assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: true, slidingW
 assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: true, slidingWidth: '4.5', slidingPrice: 105000 })"), 105000);
 assert.equal(run("calculate({ ...initial, slidingEnabled: false, slidingAutomation: true })").total, run('calculate(initial)').total);
 console.log('PASS: automated sliding gates, quantities, description, manual prices and target totals');
+
+const trimQuote = run('calculate({ ...initial, pTrim: 20 })');
+const trim = trimQuote.list.find(item => item.title === 'Декоративная П-планка');
+assert.equal(trim.quantity, 20);
+assert.equal(trim.unitPrice, 250);
+assert.equal(trim.amount, 5000);
+assert.equal(trimQuote.total, run('calculate(initial)').total + 5000);
+assert.equal(run('fixedTotalFor({ ...initial, pTrim: 20 })'), trimQuote.total - trimQuote.list[0].amount);
+assert.equal(run('calculate({ ...initial, pTrim: 20, targetTotal: 200000 })').total, 200000);
+assert.equal(run('calculate({ ...initial, pTrim: 2.5 })').list.find(item => item.title === 'Декоративная П-планка').amount, 625);
+assert.ok(!run('calculate(initial)').list.some(item => item.title === 'Декоративная П-планка'));
+console.log('PASS: P-trim quantity, fractional metres, total and target-total calculation');
