@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: 'Смета забора',
   description: 'Автономный калькулятор предварительной сметы забора.',
   manifest: './manifest.webmanifest',
+  icons: { icon: [{ url: './fence-icon.svg', type: 'image/svg+xml', sizes: 'any' }] },
 };
 
 export const viewport: Viewport = {
