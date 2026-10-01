@@ -7,7 +7,7 @@ const materials = {
   profile_one: { label: 'Профлист односторонний', prices: { '1.8': 1900, '2': 2100 } },
   profile_two: { label: 'Профлист двусторонний', prices: { '1.8': 2200, '2': 2400 } },
   picket_single: { label: 'Евроштакетник, один ряд', prices: { '1.8': 2150, '2': 2300 } },
-  picket_double_single: { label: 'Евроштакетник двухсторонний, один ряд', prices: { '1.8': 2550, '2': 2700 } },
+  picket_double_single: { label: 'Евроштакетник 2х сторонний, один ряд', prices: { '1.8': 2550, '2': 2700 } },
   picket_chess: { label: 'Евроштакетник, шахматка', prices: { '1.8': 3650, '2': 3900 } },
   mesh3d: { label: '3D-сетка', prices: { '1.7': 1900, '2': 2000 } },
   chainlink: { label: 'Сетка-рабица', prices: { '1.8': 900, '2': 1000 } },
