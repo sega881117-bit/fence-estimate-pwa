@@ -30,6 +30,12 @@ assert.equal(run('calculate({ ...' + input + ", targetTotal: 200000, targetSecti
 assert.ok(run('calculate({ ...' + input + ", targetTotal: 10000 })").targetError);
 assert.equal(run('calculate({ ...initial, length: 70 })').total, 185000);
 assert.equal(run("calculate({ ...initial, length: 40, extraSections: [{ id: 'second', material: 'picket_single', height: '2', length: 90, fencePrice: 3000 }] })").list.at(-1).amount, 12000);
+const doublePicket = run("calculate({ ...initial, material: 'picket_double_single', height: '1.8', length: 20, swingEnabled: false, wicket: 'none' })");
+assert.equal(doublePicket.list[0].unitPrice, 2700);
+assert.equal(doublePicket.list[0].amount, 54000);
+assert.match(doublePicket.list[0].title, /двухстороннее/);
+assert.match(doublePicket.list[0].details.join(' '), /зазор 3 см/);
+assert.match(doublePicket.list[0].details.join(' '), /Эмаль Dali 3в1/);
 console.log('PASS: multiple materials, heights, delivery tiers, manual prices, target totals, legacy single section');
 
 for (const [width, expected] of [['4', 100000], ['5', 110000]]) {
