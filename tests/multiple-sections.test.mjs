@@ -52,7 +52,7 @@ for (const [width, expected] of [['4', 100000], ['5', 110000]]) {
   assert.equal(target.total, 500000);
   assert.equal(target.list.find(item => item.title.startsWith('Откатные')).amount, expected * 2);
 }
-assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: false, slidingWidth: '4' })"), 69000);
+assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: false, slidingWidth: '4' })"), 70000);
 assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: false, slidingWidth: '5' })"), 75000);
 assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: true, slidingWidth: '4.5' })"), null);
 assert.equal(run("slidingUnitFor({ ...initial, slidingAutomation: true, slidingWidth: '4.5', slidingPrice: 105000 })"), 105000);

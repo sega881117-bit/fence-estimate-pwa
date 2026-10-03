@@ -54,7 +54,7 @@ const targetFor = (s: State, fixedTotal: number) => {
 const slidingUnitFor = (s: State): number | null => {
   if (s.slidingPrice > 0) return s.slidingPrice;
   if (s.slidingAutomation) return s.slidingWidth === '4' ? 100000 : s.slidingWidth === '5' ? 110000 : null;
-  return s.slidingWidth === '5' ? 75000 : ['3', '3.5', '4'].includes(s.slidingWidth) ? 69000 : null;
+  return s.slidingWidth === '5' ? 75000 : ['3', '3.5', '4'].includes(s.slidingWidth) ? 70000 : null;
 };
 const fixedTotalFor = (s: State) => {
   const length = totalLengthFor(s);
