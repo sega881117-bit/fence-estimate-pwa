@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fence-estimate-v33';
+const CACHE_NAME = 'fence-estimate-v34';
 const APP_SHELL = ['./', './manifest.webmanifest', './fence-icon.svg', './fence-icon.png?v=3', './apple-touch-icon.png?v=3'];
 
 self.addEventListener('install', (event) => {
