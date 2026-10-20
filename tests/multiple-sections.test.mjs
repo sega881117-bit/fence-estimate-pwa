@@ -7,10 +7,11 @@ import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
 // Exercise the actual component calculation, including all shared add-ons.
 const source = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
 const helpers = source.slice(source.indexOf('const materials ='), source.indexOf('export default function Home'));
-const calculation = source.split('const quote = useMemo(() => {')[1].split('}, [s]);')[0];
+const calculation = source.split('const quote = useMemo(() => {')[1].split('}, [s, prices]);')[0];
 const context = vm.createContext({ deriveFenceUnitPrice });
-vm.runInContext(ts.transpileModule(helpers + '\nfunction calculate(s: State) {' + calculation + '\n}', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, context);
-const run = expression => JSON.parse(JSON.stringify(vm.runInContext(expression, context)));
+const fixture = "const prices = {profile_single_2_0: 2100, picket_single_1_8: 2150, delivery_0_60: 6000, delivery_61_120: 8000, delivery_121_plus: 12000, swing_3_4: 17000, swing_5: 23000, sliding_3_4: 70000, sliding_5: 75000, wicket_adjacent: 13000, wicket_separate: 15000};";
+vm.runInContext(ts.transpileModule(helpers + '\n' + fixture + '\nfunction calculate(s: State) {' + calculation + '\n}\nfunction fixedFor(s: State) { return fixedTotalFor(s, prices); }\nfunction slidingFor(s: State) { return slidingUnitFor(s, prices); }', { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, context);
+const run = expression => JSON.parse(JSON.stringify(vm.runInContext(expression.replaceAll('fixedTotalFor(', 'fixedFor(').replaceAll('slidingUnitFor(', 'slidingFor('), context)));
 const input = "{ ...initial, length: 40, extraSections: [{ id: 'second', material: 'picket_single', height: '1.8', length: 30, fencePrice: '' }] }";
 const mixed = run('calculate(' + input + ')');
 assert.equal(mixed.list[0].amount, 84000);
@@ -30,7 +31,7 @@ assert.equal(run('calculate({ ...' + input + ", targetTotal: 200000, targetSecti
 assert.ok(run('calculate({ ...' + input + ", targetTotal: 10000 })").targetError);
 assert.equal(run('calculate({ ...initial, length: 70 })').total, 185000);
 assert.equal(run("calculate({ ...initial, length: 40, extraSections: [{ id: 'second', material: 'picket_single', height: '2', length: 90, fencePrice: 3000 }] })").list.at(-1).amount, 12000);
-const doublePicket = run("calculate({ ...initial, material: 'picket_double_single', height: '1.8', length: 20, swingEnabled: false, wicket: 'none' })");
+const doublePicket = run("calculate({ ...initial, material: 'picket_double_single', height: '1.8', length: 20, fencePrice: 2550, swingEnabled: false, wicket: 'none' })");
 assert.equal(doublePicket.list[0].unitPrice, 2550);
 assert.equal(doublePicket.list[0].amount, 51000);
 assert.match(doublePicket.list[0].title, /двухстороннее/);
