@@ -70,3 +70,13 @@ assert.equal(run('calculate({ ...initial, pTrim: 20, targetTotal: 200000 })').to
 assert.equal(run('calculate({ ...initial, pTrim: 2.5 })').list.find(item => item.title === 'Декоративная П-планка').amount, 625);
 assert.ok(!run('calculate(initial)').list.some(item => item.title === 'Декоративная П-планка'));
 console.log('PASS: P-trim quantity, fractional metres, total and target-total calculation');
+
+const paintQuote = run('calculate({ ...initial, paint: 66 })');
+const paint = paintQuote.list.find(item => item.title === 'Покраска каркаса Эмаль 3в1 по металлу');
+assert.equal(paint.unit, 'м.п.');
+assert.equal(paint.unitPrice, 300);
+assert.equal(paint.amount, 19800);
+assert.equal(paintQuote.total, run('calculate(initial)').total + 19800);
+assert.equal(run('fixedTotalFor({ ...initial, paint: 66 })'), paintQuote.total - paintQuote.list[0].amount);
+assert.equal(run('calculate({ ...initial, paint: 66, targetTotal: 250000 })').total, 250000);
+console.log('PASS: frame painting price, description and target-total calculation');
