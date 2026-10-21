@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
+import { estimateMatches } from '../lib/estimate-history.mjs';
 import { PRICE_CACHE_KEY, makeDefaultPriceCache, readPriceCache, needsPriceCheck, recordPriceCheck, acceptPriceUpdate, fetchPriceCatalog } from '../lib/price-cache.mjs';
 
 const PRICE_API = 'https://fence-prices.sega881117.workers.dev/v1/prices';
@@ -435,11 +436,13 @@ export default function Home() {
     const message = validationMessage(next);
     if (message) { setError(message); return; }
     const calculated = calculateQuote(next, prices);
-    const entry: SavedCalculation = { id: activeId ?? crypto.randomUUID(), name: autoCalculationName(next), updatedAt: new Date().toISOString(), state: structuredClone(next), prices: {...prices}, total: calculated.total };
-    const saved = persistLibrary([entry, ...library.filter(item => item.id !== entry.id)]);
+    const previous = library.find(item => item.id === activeId);
+    const unchanged = previous && estimateMatches(previous, next, prices, calculated.total);
+    const entry: SavedCalculation = unchanged ? previous : { id: crypto.randomUUID(), name: autoCalculationName(next), updatedAt: new Date().toISOString(), state: structuredClone(next), prices: {...prices}, total: calculated.total };
+    const saved = !!unchanged || persistLibrary([entry, ...library]);
     if (saved) {
       setActiveId(entry.id); setSaveName(entry.name); setSavedPrices(entry.prices);
-      setStorageMessage('Расчёт сохранён автоматически.');
+      setStorageMessage(unchanged ? 'Расчёт уже сохранён. Изменений нет.' : previous ? 'Новый вариант сохранён. Предыдущая смета осталась в «Моих расчётах».' : 'Расчёт сохранён автоматически.');
     }
     setError(saved ? '' : 'Смета сформирована, но сохранить её на устройстве не удалось. Проверьте свободное место и настройки браузера.');
     setLibraryOpen(false); setResult(true);
@@ -457,7 +460,7 @@ export default function Home() {
       </li>)}</ul>}
     </details>
     {storageMessage && <p className="storage-status" role="status">{storageMessage} {deleted && <button type="button" onClick={() => { if (persistLibrary([deleted, ...library])) { setDeleted(null); setStorageMessage('Расчёт восстановлен.'); } }}>Восстановить</button>}</p>}
-    {savedPrices && <aside className="saved-price-note"><strong>{saveName || 'Сохранённый расчёт'}</strong><p>Цены зафиксированы для этого расчёта. При следующем нажатии «Показать результат» изменения сохранятся автоматически.</p><button type="button" disabled={!currentPrices} onClick={() => { setSavedPrices(null); setStorageMessage('Применён текущий прайс. Проверьте итог и сохраните изменения.'); }}>{currentPrices ? 'Пересчитать по текущему прайсу' : 'Загружаем текущий прайс…'}</button></aside>}
+    {savedPrices && <aside className="saved-price-note"><strong>{saveName || 'Сохранённый расчёт'}</strong><p>Цены этой сметы зафиксированы. Если изменить параметры и нажать «Показать результат», сохранится новая смета; эта останется в списке.</p><button type="button" disabled={!currentPrices} onClick={() => { setSavedPrices(null); setStorageMessage('Применён текущий прайс. Проверьте итог и сохраните изменения.'); }}>{currentPrices ? 'Пересчитать по текущему прайсу' : 'Загружаем текущий прайс…'}</button></aside>}
     <aside className="saved-price-note" aria-label="Обновление прайса">
       <p>Прайс от {priceCache.asOf.split('-').reverse().join('.')} · проверка раз в неделю.</p>
       <button type="button" disabled={checkingPrices} onClick={() => checkPrices(true)}>{checkingPrices ? 'Проверяем цены в фоне…' : 'Проверить цены сейчас'}</button>
