@@ -109,6 +109,65 @@ const fenceSpec = (material: Material, height: string) => {
   return { title: 'Каркас забора; высота Н-' + h + ' м; 2 лаги.', details: [standardPosts, 'лаги 40×20, толщина стенки 1,5 мм;', 'пластиковые заглушки на столбах;', 'забивание столбов на глубину 1,2 м с шагом 2,5 м;', 'грунтовка ГФ-021 светло-серого цвета.'] };
 };
 
+const calculateQuote = (s: State, prices: PriceCatalog | null) => {
+    const list: Line[] = [];
+    const sections = sectionsFor(s);
+    for (const section of sections) {
+      const fence = fenceSpec(section.material, section.height);
+      const unit = sectionUnit(section, prices);
+      list.push({ ...fence, unit: 'м.п.', quantity: Number(section.length), unitPrice: unit, amount: Number(section.length) * unit, manual: Number(section.fencePrice) > 0 });
+    }
+    if (s.mode === 'standard') {
+      if (s.swingEnabled) {
+        const unit = s.swingPrice > 0 ? s.swingPrice : s.swingWidth === '5' ? rate(prices, 'swing_5') : ['3', '3.5', '4'].includes(s.swingWidth) ? rate(prices, 'swing_3_4') : null;
+        if (unit !== null) list.push({ title: 'Каркас распашных ворот ' + s.swingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + ' м, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', 'столбы 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'изнутри запирающее устройство «гусь» с проушинами для замка;', '2 нижних стопора;', 'петли 25×120 мм.'], unit: 'шт.', quantity: gateCount(s.swingCount), unitPrice: unit, amount: unit * gateCount(s.swingCount), manual: s.swingPrice > 0, requiresReview: s.swingPrice > 0 || Number(s.swingWidth) > 5 });
+      }
+      if (s.slidingEnabled) {
+        const unit = slidingUnitFor(s, prices);
+        if (unit !== null) list.push({ title: 'Откатные ворота ' + s.slidingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + (s.slidingAutomation ? ' м, с автоматическим приводом RTech 1000.' : ' м, с ручным механизмом.'), details: [...(s.slidingAutomation ? ['Автоматика RTech 1000: мотор, 2 пульта, сигнальная лампа;'] : []), 'рама из профтрубы 60×40, толщина стенки 1,5 мм; несущая балка; роликовые каретки;', 'концевой разгрузочный ролик; нижний улавливатель;', 'направляющая с роликами; верхний улавливатель; заглушки;', 'опорный столб; ответный столб;', s.slidingAutomation ? 'фундамент для роликовых кареток: сваи 89 мм, длина 2 м, 2 шт. на тумбу.' : 'фундамент для роликовых кареток: сваи 89, 2 шт. на тумбу.'], unit: 'шт.', quantity: gateCount(s.slidingCount), unitPrice: unit, amount: unit * gateCount(s.slidingCount), manual: s.slidingPrice > 0, requiresReview: s.slidingPrice > 0 || Number(s.slidingWidth) > 5 });
+      }
+      if (s.wicket !== 'none') {
+        const unit = s.wicketPrice > 0 ? s.wicketPrice : s.wicket === 'separate' ? rate(prices, 'wicket_separate') : rate(prices, 'wicket_adjacent');
+        const separate = s.wicket === 'separate';
+        list.push({ title: separate ? 'Каркас отдельно стоящей калитки 1×' + s.height.replace('.', ',') + ' м, на двух столбах, открывается наружу.' : 'Каркас рядом стоящей калитки 1×' + s.height.replace('.', ',') + ' м, на одном столбе, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', separate ? 'два столба 80×80, толщина стенки 3 мм;' : 'один столб 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'петли 25×120 мм;', 'врезной замок в подарок 🎁.'], unit: 'шт.', quantity: Math.max(1, s.wicketCount), unitPrice: unit, amount: unit * Math.max(1, s.wicketCount), manual: s.wicketPrice > 0, requiresReview: s.wicketPrice > 0 });
+      }
+      if (s.extension) list.push({ title: 'Удлинение столбов до 1,5 м', details: [], unit: 'м.п.', quantity: s.extension, unitPrice: 300, amount: s.extension * 300, requiresReview: true });
+      if (s.paint) list.push({ title: 'Покраска каркаса Эмаль 3в1 по металлу', details: [], unit: 'м.п.', quantity: s.paint, unitPrice: 300, amount: s.paint * 300, requiresReview: true });
+      if (s.gravel) list.push({ title: 'Забутовка щебнем на всю глубину', details: [], unit: 'м.п.', quantity: s.gravel, unitPrice: 300, amount: s.gravel * 300 });
+      if (s.pTrim) list.push({ title: 'Декоративная П-планка', details: [], unit: 'м.п.', quantity: s.pTrim, unitPrice: 250, amount: s.pTrim * 250 });
+    }
+    const totalLength = totalLengthFor(s);
+    const automaticDelivery = totalLength <= 60 ? rate(prices, 'delivery_0_60') : totalLength <= 120 ? rate(prices, 'delivery_61_120') : rate(prices, 'delivery_121_plus');
+    const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : automaticDelivery;
+    list.push({ title: 'Доставка', details: [], unit: 'шт.', quantity: 1, unitPrice: delivery, amount: delivery, manual: s.deliveryPrice > 0, requiresReview: s.deliveryPrice > 0 });
+    const fixedTotal = list.slice(sections.length).reduce((sum, item) => sum + item.amount, 0);
+    let targetError = '';
+    let targetApplied = false;
+    if (s.targetTotal > 0) {
+      const target = targetFor(s, fixedTotal, prices);
+      if (target.ok) {
+        const fenceLine = list[Math.max(0, sections.findIndex(section => section.id === s.targetSection))];
+        fenceLine.unitPrice = target.unitPrice!;
+        fenceLine.amount = target.fenceAmount!;
+        fenceLine.manual = false;
+        fenceLine.requiresReview = false;
+        targetApplied = true;
+      } else targetError = target.message ?? '';
+    }
+    return { list, total: list.reduce((sum, item) => sum + item.amount, 0), targetError, targetApplied, targetLineIndex: Math.max(0, sections.findIndex(section => section.id === s.targetSection)) };
+
+};
+
+const autoCalculationName = (state: State) => {
+  const parts = [totalLengthFor(state).toLocaleString('ru-RU') + ' м'];
+  if (state.mode === 'standard') {
+    const gates = (state.swingEnabled ? gateCount(state.swingCount) : 0) + (state.slidingEnabled ? gateCount(state.slidingCount) : 0);
+    if (gates > 0) parts.push(gates === 1 ? 'ворота' : 'ворота ×' + gates);
+    if (state.wicket !== 'none') parts.push(state.wicketCount === 1 ? 'калитка' : 'калитки ×' + state.wicketCount);
+  }
+  return parts.join(' · ');
+};
+
 export default function Home() {
   const [s, setS] = useState<State>(initial);
   const [result, setResult] = useState(false);
@@ -128,7 +187,6 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [saveName, setSaveName] = useState('');
-  const [saveOpen, setSaveOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [storageMessage, setStorageMessage] = useState('');
   const [deleted, setDeleted] = useState<SavedCalculation | null>(null);
@@ -195,53 +253,7 @@ export default function Home() {
   }, [s, savedPrices, activeId, saveName, ready]);
   const set = <K extends keyof State>(key: K, value: State[K]) => setS(previous => ({ ...previous, [key]: value }));
   const updateSection = (id: string, changes: Partial<FenceSection>) => setS(previous => ({ ...previous, extraSections: previous.extraSections.map(section => section.id === id ? { ...section, ...changes } : section) }));
-  const quote = useMemo(() => {
-    const list: Line[] = [];
-    const sections = sectionsFor(s);
-    for (const section of sections) {
-      const fence = fenceSpec(section.material, section.height);
-      const unit = sectionUnit(section, prices);
-      list.push({ ...fence, unit: 'м.п.', quantity: Number(section.length), unitPrice: unit, amount: Number(section.length) * unit, manual: Number(section.fencePrice) > 0 });
-    }
-    if (s.mode === 'standard') {
-      if (s.swingEnabled) {
-        const unit = s.swingPrice > 0 ? s.swingPrice : s.swingWidth === '5' ? rate(prices, 'swing_5') : ['3', '3.5', '4'].includes(s.swingWidth) ? rate(prices, 'swing_3_4') : null;
-        if (unit !== null) list.push({ title: 'Каркас распашных ворот ' + s.swingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + ' м, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', 'столбы 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'изнутри запирающее устройство «гусь» с проушинами для замка;', '2 нижних стопора;', 'петли 25×120 мм.'], unit: 'шт.', quantity: gateCount(s.swingCount), unitPrice: unit, amount: unit * gateCount(s.swingCount), manual: s.swingPrice > 0, requiresReview: s.swingPrice > 0 || Number(s.swingWidth) > 5 });
-      }
-      if (s.slidingEnabled) {
-        const unit = slidingUnitFor(s, prices);
-        if (unit !== null) list.push({ title: 'Откатные ворота ' + s.slidingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + (s.slidingAutomation ? ' м, с автоматическим приводом RTech 1000.' : ' м, с ручным механизмом.'), details: [...(s.slidingAutomation ? ['Автоматика RTech 1000: мотор, 2 пульта, сигнальная лампа;'] : []), 'рама из профтрубы 60×40, толщина стенки 1,5 мм; несущая балка; роликовые каретки;', 'концевой разгрузочный ролик; нижний улавливатель;', 'направляющая с роликами; верхний улавливатель; заглушки;', 'опорный столб; ответный столб;', s.slidingAutomation ? 'фундамент для роликовых кареток: сваи 89 мм, длина 2 м, 2 шт. на тумбу.' : 'фундамент для роликовых кареток: сваи 89, 2 шт. на тумбу.'], unit: 'шт.', quantity: gateCount(s.slidingCount), unitPrice: unit, amount: unit * gateCount(s.slidingCount), manual: s.slidingPrice > 0, requiresReview: s.slidingPrice > 0 || Number(s.slidingWidth) > 5 });
-      }
-      if (s.wicket !== 'none') {
-        const unit = s.wicketPrice > 0 ? s.wicketPrice : s.wicket === 'separate' ? rate(prices, 'wicket_separate') : rate(prices, 'wicket_adjacent');
-        const separate = s.wicket === 'separate';
-        list.push({ title: separate ? 'Каркас отдельно стоящей калитки 1×' + s.height.replace('.', ',') + ' м, на двух столбах, открывается наружу.' : 'Каркас рядом стоящей калитки 1×' + s.height.replace('.', ',') + ' м, на одном столбе, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', separate ? 'два столба 80×80, толщина стенки 3 мм;' : 'один столб 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'петли 25×120 мм;', 'врезной замок в подарок 🎁.'], unit: 'шт.', quantity: Math.max(1, s.wicketCount), unitPrice: unit, amount: unit * Math.max(1, s.wicketCount), manual: s.wicketPrice > 0, requiresReview: s.wicketPrice > 0 });
-      }
-      if (s.extension) list.push({ title: 'Удлинение столбов до 1,5 м', details: [], unit: 'м.п.', quantity: s.extension, unitPrice: 300, amount: s.extension * 300, requiresReview: true });
-      if (s.paint) list.push({ title: 'Покраска каркаса Эмаль 3в1 по металлу', details: [], unit: 'м.п.', quantity: s.paint, unitPrice: 300, amount: s.paint * 300, requiresReview: true });
-      if (s.gravel) list.push({ title: 'Забутовка щебнем на всю глубину', details: [], unit: 'м.п.', quantity: s.gravel, unitPrice: 300, amount: s.gravel * 300 });
-      if (s.pTrim) list.push({ title: 'Декоративная П-планка', details: [], unit: 'м.п.', quantity: s.pTrim, unitPrice: 250, amount: s.pTrim * 250 });
-    }
-    const totalLength = totalLengthFor(s);
-    const automaticDelivery = totalLength <= 60 ? rate(prices, 'delivery_0_60') : totalLength <= 120 ? rate(prices, 'delivery_61_120') : rate(prices, 'delivery_121_plus');
-    const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : automaticDelivery;
-    list.push({ title: 'Доставка', details: [], unit: 'шт.', quantity: 1, unitPrice: delivery, amount: delivery, manual: s.deliveryPrice > 0, requiresReview: s.deliveryPrice > 0 });
-    const fixedTotal = list.slice(sections.length).reduce((sum, item) => sum + item.amount, 0);
-    let targetError = '';
-    let targetApplied = false;
-    if (s.targetTotal > 0) {
-      const target = targetFor(s, fixedTotal, prices);
-      if (target.ok) {
-        const fenceLine = list[Math.max(0, sections.findIndex(section => section.id === s.targetSection))];
-        fenceLine.unitPrice = target.unitPrice!;
-        fenceLine.amount = target.fenceAmount!;
-        fenceLine.manual = false;
-        fenceLine.requiresReview = false;
-        targetApplied = true;
-      } else targetError = target.message ?? '';
-    }
-    return { list, total: list.reduce((sum, item) => sum + item.amount, 0), targetError, targetApplied, targetLineIndex: Math.max(0, sections.findIndex(section => section.id === s.targetSection)) };
-  }, [s, prices]);
+  const quote = useMemo(() => { return calculateQuote(s, prices); }, [s, prices]);
   const quoteImage = () => {
     const canvas = document.createElement('canvas');
     const scale = 2;
@@ -404,21 +416,10 @@ export default function Home() {
     try { localStorage.setItem(SAVED_KEY, JSON.stringify(items)); setLibrary(items); return true; }
     catch { setStorageMessage('Не удалось сохранить расчёт. Проверьте свободное место или настройки браузера.'); return false; }
   };
-  const saveCalculation = () => {
-    const next = normalizedState();
-    const message = validationMessage(next);
-    if (message) { setError(message); return; }
-    if (!saveName.trim()) { setStorageMessage('Укажите название расчёта.'); document.getElementById('calculation-name')?.focus(); return; }
-    const entry: SavedCalculation = { id: activeId ?? crypto.randomUUID(), name: saveName.trim(), updatedAt: new Date().toISOString(), state: structuredClone(next), prices: { ...prices! }, total: quote.total };
-    if (!persistLibrary([entry, ...library.filter(item => item.id !== entry.id)])) return;
-    setS(next); setNumericDrafts({}); setActiveId(entry.id); setSavedPrices(entry.prices);
-    setSaveName(entry.name); setSaveOpen(false); setError(''); setLibraryOpen(true); setStorageMessage(`«${entry.name}» сохранён на этом устройстве.`);
-    requestAnimationFrame(() => document.getElementById('saved-calculations')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  };
   const openCalculation = (entry: SavedCalculation, copy = false) => {
     setS(structuredClone(entry.state)); setSavedPrices({ ...entry.prices }); setNumericDrafts({});
     setActiveId(copy ? null : entry.id); setSaveName(copy ? entry.name + ' — копия' : entry.name);
-    setError(''); setResult(false); setSaveOpen(false); setLibraryOpen(false);
+    setError(''); setResult(false); setLibraryOpen(false);
     setStorageMessage(copy ? 'Копия открыта. Исходный расчёт сохранён.' : `Открыт «${entry.name}». Используются сохранённые цены.`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -433,7 +434,16 @@ export default function Home() {
     setS(next); setNumericDrafts({});
     const message = validationMessage(next);
     if (message) { setError(message); return; }
-    setError(''); setResult(true);
+    const calculated = calculateQuote(next, prices);
+    const entry: SavedCalculation = { id: activeId ?? crypto.randomUUID(), name: autoCalculationName(next), updatedAt: new Date().toISOString(), state: structuredClone(next), prices: {...prices}, total: calculated.total };
+    const saved = persistLibrary([entry, ...library.filter(item => item.id !== entry.id)]);
+    if (saved) {
+      setActiveId(entry.id); setSaveName(entry.name); setSavedPrices(entry.prices);
+      setStorageMessage('Расчёт сохранён автоматически.');
+    }
+    setError(saved ? '' : 'Смета сформирована, но сохранить её на устройстве не удалось. Проверьте свободное место и настройки браузера.');
+    setLibraryOpen(false); setResult(true);
+    requestAnimationFrame(() => window.scrollTo({top: 0, behavior: 'auto'}));
   };
   const widths = (value: string, key: 'swingWidth' | 'slidingWidth') => <label><span>Ширина, м</span><select id={'field-' + key} value={value} onChange={event => set(key, event.target.value)}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>;
 
@@ -441,13 +451,13 @@ export default function Home() {
     <details className="calculation-library" open={libraryOpen} onToggle={event => setLibraryOpen(event.currentTarget.open)}>
       <summary>Мои расчёты <span>{library.length}</span></summary>
       <p className="hint">Сохраняются в этом браузере. На другом устройстве список будет отдельным.</p>
-      {library.length === 0 ? <p className="library-empty">Здесь появятся ваши сметы. Сначала покажите результат, затем нажмите «Сохранить расчёт».</p> : <ul className="saved-list">{library.map(entry => <li key={entry.id}>
+      {library.length === 0 ? <p className="library-empty">Нажмите «Показать результат» — расчёт сохранится здесь автоматически.</p> : <ul className="saved-list">{library.map(entry => <li key={entry.id}>
         <button type="button" className="saved-open" onClick={() => openCalculation(entry)}><strong>{entry.name}</strong><span>{new Date(entry.updatedAt).toLocaleDateString('ru-RU')} · {totalLengthFor(entry.state)} м</span><b>{money(entry.total)}</b></button>
         <div className="saved-actions"><button type="button" onClick={() => openCalculation(entry)}>Открыть</button><button type="button" onClick={() => openCalculation(entry, true)}>Создать копию</button><button type="button" className="delete-action" aria-label={`Удалить расчёт ${entry.name}`} onClick={() => deleteCalculation(entry)}>Удалить</button></div>
       </li>)}</ul>}
     </details>
     {storageMessage && <p className="storage-status" role="status">{storageMessage} {deleted && <button type="button" onClick={() => { if (persistLibrary([deleted, ...library])) { setDeleted(null); setStorageMessage('Расчёт восстановлен.'); } }}>Восстановить</button>}</p>}
-    {savedPrices && <aside className="saved-price-note"><strong>{saveName || 'Сохранённый расчёт'}</strong><p>Цены зафиксированы при сохранении. Сохранить изменения можно на экране готовой сметы.</p><button type="button" disabled={!currentPrices} onClick={() => { setSavedPrices(null); setStorageMessage('Применён текущий прайс. Проверьте итог и сохраните изменения.'); }}>{currentPrices ? 'Пересчитать по текущему прайсу' : 'Загружаем текущий прайс…'}</button></aside>}
+    {savedPrices && <aside className="saved-price-note"><strong>{saveName || 'Сохранённый расчёт'}</strong><p>Цены зафиксированы для этого расчёта. При следующем нажатии «Показать результат» изменения сохранятся автоматически.</p><button type="button" disabled={!currentPrices} onClick={() => { setSavedPrices(null); setStorageMessage('Применён текущий прайс. Проверьте итог и сохраните изменения.'); }}>{currentPrices ? 'Пересчитать по текущему прайсу' : 'Загружаем текущий прайс…'}</button></aside>}
     <aside className="saved-price-note" aria-label="Обновление прайса">
       <p>Прайс от {priceCache.asOf.split('-').reverse().join('.')} · проверка раз в неделю.</p>
       <button type="button" disabled={checkingPrices} onClick={() => checkPrices(true)}>{checkingPrices ? 'Проверяем цены в фоне…' : 'Проверить цены сейчас'}</button>
@@ -455,13 +465,7 @@ export default function Home() {
       {priceCheckMessage && <p role="status">{priceCheckMessage}</p>}
     </aside>
   </section>;
-  const saveControls = <div className="result-save">
-    <button type="button" className="reset save-trigger" onClick={() => { setSaveOpen(previous => !previous); if (!saveName) setSaveName('Расчёт от ' + new Date().toLocaleDateString('ru-RU')); }}>Сохранить расчёт</button>
-    {saveOpen && <section className="save-editor" aria-label="Сохранение расчёта"><h2>{activeId ? 'Сохранить изменения' : 'Новый сохранённый расчёт'}</h2><label htmlFor="calculation-name">Клиент или адрес<input id="calculation-name" type="text" maxLength={120} placeholder="Например, Иван — забор в Истре" value={saveName} onChange={event => setSaveName(event.target.value)} /></label><p className="hint">Сохраним параметры и цены. Название можно изменить при следующем сохранении.</p><div className="save-editor-actions"><button type="button" className="primary" onClick={saveCalculation}>{activeId ? 'Обновить сохранённый расчёт' : 'Сохранить на устройстве'}</button><button type="button" className="text-button" onClick={() => setSaveOpen(false)}>Отмена</button></div></section>}
-    {error && <p className="error" role="alert">{error}</p>}
-  </div>;
-
-  if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button><article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map((item, index) => <div className="estimate-row" role="row" key={index}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice, quote.targetApplied && index === quote.targetLineIndex)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета использует прайс «Цены для Авито».</p>{saveControls}{savedArea}</main>;
+  if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button>{error && <p className="error" role="alert">{error}</p>}<article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map((item, index) => <div className="estimate-row" role="row" key={index}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice, quote.targetApplied && index === quote.targetLineIndex)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета использует прайс «Цены для Авито».</p>{savedArea}</main>;
   return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header>
     <section className="hero"><span>Предварительная смета</span><b>{prices ? money(quote.total) : 'Загрузка…'}</b></section><form onSubmit={submit}>
     <section className="card mode-card"><small>Режим расчёта</small><label>Выберите режим<select value={s.mode} onChange={event => set('mode', event.target.value as State['mode'])}><option value="standard">Полная смета</option><option value="fence">Только забор</option></select></label><p className="hint">{s.mode === 'fence' ? 'В этом режиме не учитываются ворота, калитка и допработы. Доставка рассчитывается по длине участка.' : 'Настройте состав и при необходимости замените цены прайса своими.'}</p></section>
@@ -494,6 +498,6 @@ export default function Home() {
       {s.wicket !== 'none' && <>{numericInput('Количество калиток', 'wicketCount')}{price('Своя цена калитки за единицу, ₽', 'wicketPrice', 'По прайсу')}</>}
     </section><section className="card extras-card"><small>03 · Дополнительно</small><div className="grid additional-grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}{numericInput('Забутовка щебнем на всю глубину, м', 'gravel')}{numericInput('Декоративная П-планка, м', 'pTrim')}</div>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section></>}
     {s.mode === 'fence' && <section className="card delivery-card"><small>02 · Доставка</small>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section>}
-    {error && <p className="error" role="alert">{error}</p>}<button className="primary calc-submit">Показать результат →</button><button type="button" className="reset" onClick={() => { setS(initial); setNumericDrafts({}); setActiveId(null); setSavedPrices(null); setSaveName(''); setSaveOpen(false); setError(''); setStorageMessage(''); setDeleted(null); }}>Сбросить параметры</button><p className="hint reset-explanation">Вернуть начальные значения полей. Сохранённые сметы останутся.</p>
+    {error && <p className="error" role="alert">{error}</p>}<button className="primary calc-submit">Показать результат →</button><button type="button" className="reset" onClick={() => { setS(initial); setNumericDrafts({}); setActiveId(null); setSavedPrices(null); setSaveName(''); setError(''); setStorageMessage(''); setDeleted(null); }}>Сбросить параметры</button><p className="hint reset-explanation">Вернуть начальные значения полей. Сохранённые сметы останутся.</p>
   </form>{savedArea}<p className="note">Цены загружаются из таблицы «Цены для Авито». Данные расчёта остаются на устройстве.</p><details><summary>Как установить на iPhone</summary><p>Откройте сайт в Safari → «Поделиться» → «На экран Домой».</p></details></main>;
 }
