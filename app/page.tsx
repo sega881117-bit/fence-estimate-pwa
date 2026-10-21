@@ -1,7 +1,8 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
+import { PRICE_CACHE_KEY, makeDefaultPriceCache, readPriceCache, needsPriceCheck, recordPriceCheck, acceptPriceUpdate, fetchPriceCatalog } from '../lib/price-cache.mjs';
 
 const PRICE_API = 'https://fence-prices.sega881117.workers.dev/v1/prices';
 const materials = {
@@ -114,10 +115,15 @@ export default function Home() {
   const [error, setError] = useState('');
   const [shareMessage, setShareMessage] = useState('');
   const [numericDrafts, setNumericDrafts] = useState<Partial<Record<NumericKey, string>>>({});
-  const [currentPrices, setCurrentPrices] = useState<PriceCatalog | null>(null);
+  const [priceCache, setPriceCache] = useState(makeDefaultPriceCache);
+  const priceCacheRef = useRef(priceCache);
+  const priceRequestRef = useRef<AbortController | null>(null);
+  const priceMountedRef = useRef(false);
+  const [checkingPrices, setCheckingPrices] = useState(false);
+  const [priceCheckMessage, setPriceCheckMessage] = useState('');
+  const currentPrices = priceCache.catalog;
   const [savedPrices, setSavedPrices] = useState<PriceCatalog | null>(null);
   const prices = savedPrices ?? currentPrices;
-  const [priceError, setPriceError] = useState('');
   const [library, setLibrary] = useState<SavedCalculation[]>([]);
   const [ready, setReady] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -144,13 +150,43 @@ export default function Home() {
     setReady(true);
     if (!['localhost', '127.0.0.1'].includes(location.hostname)) navigator.serviceWorker?.register('./sw.js', { updateViaCache: 'none' }).then(registration => registration.update()).catch(() => {});
   }, []);
+  const persistPriceCache = (next: typeof priceCache) => {
+    priceCacheRef.current = next;
+    setPriceCache(next);
+    try { localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(next)); } catch { /* The bundled prices remain usable when storage is unavailable. */ }
+  };
+  const checkPrices = (force = false) => {
+    if (priceRequestRef.current || (!force && !needsPriceCheck(priceCacheRef.current))) return;
+    const controller = new AbortController();
+    priceRequestRef.current = controller;
+    persistPriceCache({...priceCacheRef.current, attemptedAt: Date.now()});
+    setCheckingPrices(true); setPriceCheckMessage('');
+    fetchPriceCatalog(PRICE_API, {signal: controller.signal})
+      .then(payload => {
+        if (!priceMountedRef.current) return;
+        const next = recordPriceCheck(priceCacheRef.current, payload);
+        persistPriceCache(next);
+        setPriceCheckMessage(next.available ? '' : 'Цены проверены — изменений нет.');
+      })
+      .catch(() => { if (priceMountedRef.current) setPriceCheckMessage('Не удалось проверить обновления. Можно считать по сохранённому прайсу.'); })
+      .finally(() => {
+        if (priceRequestRef.current === controller) priceRequestRef.current = null;
+        if (priceMountedRef.current) setCheckingPrices(false);
+      });
+  };
   useEffect(() => {
-    let active = true;
-    fetch(PRICE_API, { cache: 'no-store' })
-      .then(async response => { if (!response.ok) throw new Error('price_source_unavailable'); return response.json() as Promise<PriceCatalog>; })
-      .then(catalog => { if (active) { setCurrentPrices(catalog); setPriceError(''); } })
-      .catch(() => { if (active) setPriceError('Прайс «Цены для Авито» временно недоступен. Расчёт не сформирован.'); });
-    return () => { active = false; };
+    priceMountedRef.current = true;
+    let cached = makeDefaultPriceCache();
+    try { cached = readPriceCache(localStorage.getItem(PRICE_CACHE_KEY)); } catch { /* Use the verified bundled copy. */ }
+    persistPriceCache(cached);
+    checkPrices();
+    const onResume = () => { if (document.visibilityState === 'visible') checkPrices(); };
+    window.addEventListener('focus', onResume);
+    document.addEventListener('visibilitychange', onResume);
+    return () => {
+      priceMountedRef.current = false; priceRequestRef.current?.abort(); priceRequestRef.current = null;
+      window.removeEventListener('focus', onResume); document.removeEventListener('visibilitychange', onResume);
+    };
   }, []);
   useEffect(() => {
     if (!ready) return;
@@ -354,7 +390,6 @@ export default function Home() {
   const price = (label: string, key: 'fencePrice' | 'swingPrice' | 'slidingPrice' | 'wicketPrice' | 'deliveryPrice', placeholder: string) => <label>{label}<input id={'field-' + key} type="number" min="0" step="any" inputMode="decimal" placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /><span className="hint">Необязательно: пустое поле использует цену прайса или правило расчёта.</span></label>;
   const needsManualPrice = (width: string, value: number) => !['3', '3.5', '4', '5'].includes(width) && value <= 0;
   const validationMessage = (next: State) => {
-    if (!prices) return priceError || 'Загружаем прайс. Повторите расчёт через секунду.';
     if (sectionsFor(next).some(section => !Number.isFinite(Number(section.length)) || Number(section.length) <= 0)) return 'Введите длину каждого участка забора больше нуля.';
     if (sectionsFor(next).some(section => sectionUnit(section, prices) <= 0)) return 'Для выбранного материала нет утверждённой цены. Укажите свою цену за метр.';
     if (next.targetTotal > 0) {
@@ -413,6 +448,12 @@ export default function Home() {
     </details>
     {storageMessage && <p className="storage-status" role="status">{storageMessage} {deleted && <button type="button" onClick={() => { if (persistLibrary([deleted, ...library])) { setDeleted(null); setStorageMessage('Расчёт восстановлен.'); } }}>Восстановить</button>}</p>}
     {savedPrices && <aside className="saved-price-note"><strong>{saveName || 'Сохранённый расчёт'}</strong><p>Цены зафиксированы при сохранении. Сохранить изменения можно на экране готовой сметы.</p><button type="button" disabled={!currentPrices} onClick={() => { setSavedPrices(null); setStorageMessage('Применён текущий прайс. Проверьте итог и сохраните изменения.'); }}>{currentPrices ? 'Пересчитать по текущему прайсу' : 'Загружаем текущий прайс…'}</button></aside>}
+    <aside className="saved-price-note" aria-label="Обновление прайса">
+      <p>Прайс от {priceCache.asOf.split('-').reverse().join('.')} · проверка раз в неделю.</p>
+      <button type="button" disabled={checkingPrices} onClick={() => checkPrices(true)}>{checkingPrices ? 'Проверяем цены в фоне…' : 'Проверить цены сейчас'}</button>
+      {priceCache.available && <div><p>Доступен новый прайс от {priceCache.available.asOf.split('-').reverse().join('.')}. Текущий расчёт пока использует прежние цены.</p><button type="button" onClick={() => { persistPriceCache(acceptPriceUpdate(priceCacheRef.current)); setSavedPrices(null); setPriceCheckMessage('Новый прайс применён к текущему расчёту.'); setError(''); }}>Применить новый прайс</button></div>}
+      {priceCheckMessage && <p role="status">{priceCheckMessage}</p>}
+    </aside>
   </section>;
   const saveControls = <div className="result-save">
     <button type="button" className="reset save-trigger" onClick={() => { setSaveOpen(previous => !previous); if (!saveName) setSaveName('Расчёт от ' + new Date().toLocaleDateString('ru-RU')); }}>Сохранить расчёт</button>
@@ -424,7 +465,7 @@ export default function Home() {
   return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header>
     <section className="hero"><span>Предварительная смета</span><b>{prices ? money(quote.total) : 'Загрузка…'}</b></section><form onSubmit={submit}>
     <section className="card mode-card"><small>Режим расчёта</small><label>Выберите режим<select value={s.mode} onChange={event => set('mode', event.target.value as State['mode'])}><option value="standard">Полная смета</option><option value="fence">Только забор</option></select></label><p className="hint">{s.mode === 'fence' ? 'В этом режиме не учитываются ворота, калитка и допработы. Доставка рассчитывается по длине участка.' : 'Настройте состав и при необходимости замените цены прайса своими.'}</p></section>
-    <section className="card fence-card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', materials[material].heights[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{materials[s.material].heights.map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{priceError && !savedPrices && <p className="error">{priceError}</p>}{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
+    <section className="card fence-card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', materials[material].heights[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{materials[s.material].heights.map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
     {s.extraSections.map((section, index) => <section className="card fence-card" key={section.id}>
       <small>01 · Участок забора {index + 2}</small>
       <label>Материал<select value={section.material} onChange={event => { const material = event.target.value as Material; updateSection(section.id, { material, height: materials[material].heights.includes(section.height as never) ? section.height : materials[material].heights[0] }); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
