@@ -31,6 +31,9 @@ type State = {
   deliveryPrice: number; extension: number; paint: number; gravel: number; pTrim: number;
 };
 type Line = { title: string; details: string[]; unit: string; quantity: number; unitPrice: number; amount: number; manual?: boolean; requiresReview?: boolean };
+type SavedCalculation = { id: string; name: string; updatedAt: string; state: State; prices: PriceCatalog; total: number };
+const SAVED_KEY = 'fence-estimate-library-v1';
+const DRAFT_KEY = 'fence-estimate-draft-v2';
 const initial: State = {
   extraSections: [], targetSection: 'first',
   mode: 'standard', material: 'profile_one', height: '2', length: 70, fencePrice: 0, targetTotal: 0,
@@ -111,22 +114,49 @@ export default function Home() {
   const [error, setError] = useState('');
   const [shareMessage, setShareMessage] = useState('');
   const [numericDrafts, setNumericDrafts] = useState<Partial<Record<NumericKey, string>>>({});
-  const [prices, setPrices] = useState<PriceCatalog | null>(null);
+  const [currentPrices, setCurrentPrices] = useState<PriceCatalog | null>(null);
+  const [savedPrices, setSavedPrices] = useState<PriceCatalog | null>(null);
+  const prices = savedPrices ?? currentPrices;
   const [priceError, setPriceError] = useState('');
+  const [library, setLibrary] = useState<SavedCalculation[]>([]);
+  const [ready, setReady] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [saveName, setSaveName] = useState('');
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [storageMessage, setStorageMessage] = useState('');
+  const [deleted, setDeleted] = useState<SavedCalculation | null>(null);
   useEffect(() => {
-    const saved = localStorage.getItem('fence-estimate');
-    if (saved) setS({ ...initial, ...JSON.parse(saved) });
-    navigator.serviceWorker?.register('./sw.js', { updateViaCache: 'none' }).then((registration) => registration.update());
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      const legacy = localStorage.getItem('fence-estimate');
+      const draft = raw ? JSON.parse(raw) : null;
+      if (draft?.state?.material in materials) {
+        setS({ ...initial, ...draft.state }); setSavedPrices(draft.prices ?? null);
+        setActiveId(draft.activeId ?? null); setSaveName(draft.name ?? '');
+      } else if (legacy) {
+        const state = JSON.parse(legacy);
+        if (state.material in materials) setS({ ...initial, ...state });
+      }
+      const items = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]');
+      if (Array.isArray(items)) setLibrary(items.filter(item => typeof item?.id === 'string' && typeof item?.name === 'string' && item?.state?.material in materials && Array.isArray(item.state.extraSections) && item.prices && Number.isFinite(item.total)));
+    } catch { setStorageMessage('Не удалось прочитать сохранённые данные. Можно продолжить новый расчёт.'); }
+    setReady(true);
+    if (!['localhost', '127.0.0.1'].includes(location.hostname)) navigator.serviceWorker?.register('./sw.js', { updateViaCache: 'none' }).then(registration => registration.update()).catch(() => {});
   }, []);
   useEffect(() => {
     let active = true;
     fetch(PRICE_API, { cache: 'no-store' })
       .then(async response => { if (!response.ok) throw new Error('price_source_unavailable'); return response.json() as Promise<PriceCatalog>; })
-      .then(catalog => { if (active) { setPrices(catalog); setPriceError(''); } })
+      .then(catalog => { if (active) { setCurrentPrices(catalog); setPriceError(''); } })
       .catch(() => { if (active) setPriceError('Прайс «Цены для Авито» временно недоступен. Расчёт не сформирован.'); });
     return () => { active = false; };
   }, []);
-  useEffect(() => localStorage.setItem('fence-estimate', JSON.stringify(s)), [s]);
+  useEffect(() => {
+    if (!ready) return;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ state: s, prices: savedPrices, activeId, name: saveName })); }
+    catch { setStorageMessage('Не удалось сохранить черновик на устройстве. Проверьте свободное место или настройки браузера.'); }
+  }, [s, savedPrices, activeId, saveName, ready]);
   const set = <K extends keyof State>(key: K, value: State[K]) => setS(previous => ({ ...previous, [key]: value }));
   const updateSection = (id: string, changes: Partial<FenceSection>) => setS(previous => ({ ...previous, extraSections: previous.extraSections.map(section => section.id === id ? { ...section, ...changes } : section) }));
   const quote = useMemo(() => {
@@ -167,12 +197,12 @@ export default function Home() {
       const target = targetFor(s, fixedTotal, prices);
       if (target.ok) {
         const fenceLine = list[Math.max(0, sections.findIndex(section => section.id === s.targetSection))];
-        fenceLine.unitPrice = target.unitPrice;
-        fenceLine.amount = target.fenceAmount;
+        fenceLine.unitPrice = target.unitPrice!;
+        fenceLine.amount = target.fenceAmount!;
         fenceLine.manual = false;
         fenceLine.requiresReview = false;
         targetApplied = true;
-      } else targetError = target.message;
+      } else targetError = target.message ?? '';
     }
     return { list, total: list.reduce((sum, item) => sum + item.amount, 0), targetError, targetApplied, targetLineIndex: Math.max(0, sections.findIndex(section => section.id === s.targetSection)) };
   }, [s, prices]);
@@ -320,30 +350,81 @@ export default function Home() {
     });
     return next;
   };
-  const numericInput = (label: string, key: NumericKey, placeholder?: string) => <label>{label}<input type="number" min={numericRules[key].min} step={numericRules[key].integer ? '1' : 'any'} inputMode={numericRules[key].integer ? 'numeric' : 'decimal'} placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /></label>;
-  const price = (label: string, key: 'fencePrice' | 'swingPrice' | 'slidingPrice' | 'wicketPrice' | 'deliveryPrice', placeholder: string) => <label>{label}<input type="number" min="0" step="any" inputMode="decimal" placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /><span className="hint">Необязательно: пустое поле использует цену прайса или правило расчёта.</span></label>;
+  const numericInput = (label: string, key: NumericKey, placeholder?: string) => <label>{label}<input id={'field-' + key} type="number" min={numericRules[key].min} step={numericRules[key].integer ? '1' : 'any'} inputMode={numericRules[key].integer ? 'numeric' : 'decimal'} placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /></label>;
+  const price = (label: string, key: 'fencePrice' | 'swingPrice' | 'slidingPrice' | 'wicketPrice' | 'deliveryPrice', placeholder: string) => <label>{label}<input id={'field-' + key} type="number" min="0" step="any" inputMode="decimal" placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /><span className="hint">Необязательно: пустое поле использует цену прайса или правило расчёта.</span></label>;
   const needsManualPrice = (width: string, value: number) => !['3', '3.5', '4', '5'].includes(width) && value <= 0;
+  const validationMessage = (next: State) => {
+    if (!prices) return priceError || 'Загружаем прайс. Повторите расчёт через секунду.';
+    if (sectionsFor(next).some(section => !Number.isFinite(Number(section.length)) || Number(section.length) <= 0)) return 'Введите длину каждого участка забора больше нуля.';
+    if (sectionsFor(next).some(section => sectionUnit(section, prices) <= 0)) return 'Для выбранного материала нет утверждённой цены. Укажите свою цену за метр.';
+    if (next.targetTotal > 0) {
+      const target = targetFor(next, fixedTotalFor(next, prices), prices);
+      if (!target.ok) return target.message;
+    }
+    if (next.mode === 'standard' && next.swingEnabled && needsManualPrice(next.swingWidth, next.swingPrice)) return `Для распашных ворот шириной ${next.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`;
+    if (next.mode === 'standard' && next.slidingEnabled && slidingUnitFor(next, prices) === null) return `Для откатных ворот шириной ${next.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`;
+    return '';
+  };
+  const persistLibrary = (items: SavedCalculation[]) => {
+    try { localStorage.setItem(SAVED_KEY, JSON.stringify(items)); setLibrary(items); return true; }
+    catch { setStorageMessage('Не удалось сохранить расчёт. Проверьте свободное место или настройки браузера.'); return false; }
+  };
+  const saveCalculation = () => {
+    const next = normalizedState();
+    const message = validationMessage(next);
+    if (message) { setError(message); return; }
+    if (!saveName.trim()) { setStorageMessage('Укажите название расчёта.'); document.getElementById('calculation-name')?.focus(); return; }
+    const entry: SavedCalculation = { id: activeId ?? crypto.randomUUID(), name: saveName.trim(), updatedAt: new Date().toISOString(), state: structuredClone(next), prices: { ...prices! }, total: quote.total };
+    if (!persistLibrary([entry, ...library.filter(item => item.id !== entry.id)])) return;
+    setS(next); setNumericDrafts({}); setActiveId(entry.id); setSavedPrices(entry.prices);
+    setSaveName(entry.name); setSaveOpen(false); setError(''); setLibraryOpen(true); setStorageMessage(`«${entry.name}» сохранён на этом устройстве.`);
+    requestAnimationFrame(() => document.getElementById('saved-calculations')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+  const openCalculation = (entry: SavedCalculation, copy = false) => {
+    setS(structuredClone(entry.state)); setSavedPrices({ ...entry.prices }); setNumericDrafts({});
+    setActiveId(copy ? null : entry.id); setSaveName(copy ? entry.name + ' — копия' : entry.name);
+    setError(''); setResult(false); setSaveOpen(false); setLibraryOpen(false);
+    setStorageMessage(copy ? 'Копия открыта. Исходный расчёт сохранён.' : `Открыт «${entry.name}». Используются сохранённые цены.`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const deleteCalculation = (entry: SavedCalculation) => {
+    if (!persistLibrary(library.filter(item => item.id !== entry.id))) return;
+    setDeleted(entry); if (activeId === entry.id) setActiveId(null);
+    setStorageMessage(`«${entry.name}» удалён. Можно восстановить.`);
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const next = normalizedState();
     setS(next); setNumericDrafts({});
-    if (!prices) { setError(priceError || 'Загружаем прайс «Цены для Авито». Повторите расчёт через секунду.'); return; }
-    if (sectionsFor(next).some(section => !Number.isFinite(Number(section.length)) || Number(section.length) <= 0)) { setError('Введите длину каждого участка забора больше нуля.'); return; }
-    if (sectionsFor(next).some(section => sectionUnit(section, prices) <= 0)) { setError('Для выбранного материала нет утверждённой цены. Укажите свою цену за метр или обновите прайс.'); return; }
-    if (next.targetTotal > 0) {
-      const target = targetFor(next, fixedTotalFor(next, prices), prices);
-      if (!target.ok) { setError(target.message); return; }
-    }
-    if (next.mode === 'standard' && next.swingEnabled && needsManualPrice(next.swingWidth, next.swingPrice)) { setError(`Для распашных ворот шириной ${next.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
-    if (next.mode === 'standard' && next.slidingEnabled && slidingUnitFor(next, prices) === null) { setError(`Для откатных ворот шириной ${next.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`); return; }
+    const message = validationMessage(next);
+    if (message) { setError(message); return; }
     setError(''); setResult(true);
   };
-  const widths = (value: string, key: 'swingWidth' | 'slidingWidth') => <label><span>Ширина, м</span><select value={value} onChange={event => set(key, event.target.value)}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>;
+  const widths = (value: string, key: 'swingWidth' | 'slidingWidth') => <label><span>Ширина, м</span><select id={'field-' + key} value={value} onChange={event => set(key, event.target.value)}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>;
 
-  if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button><article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map((item, index) => <div className="estimate-row" role="row" key={index}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice, quote.targetApplied && index === quote.targetLineIndex)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета использует прайс «Цены для Авито».</p></main>;
-  return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header><section className="hero"><span>Предварительная смета</span><b>{money(quote.total)}</b></section><form onSubmit={submit}>
+  const savedArea = <section id="saved-calculations" className="calculation-footer" aria-label="Сохранённые расчёты">
+    <details className="calculation-library" open={libraryOpen} onToggle={event => setLibraryOpen(event.currentTarget.open)}>
+      <summary>Мои расчёты <span>{library.length}</span></summary>
+      <p className="hint">Сохраняются в этом браузере. На другом устройстве список будет отдельным.</p>
+      {library.length === 0 ? <p className="library-empty">Здесь появятся ваши сметы. Сначала покажите результат, затем нажмите «Сохранить расчёт».</p> : <ul className="saved-list">{library.map(entry => <li key={entry.id}>
+        <button type="button" className="saved-open" onClick={() => openCalculation(entry)}><strong>{entry.name}</strong><span>{new Date(entry.updatedAt).toLocaleDateString('ru-RU')} · {totalLengthFor(entry.state)} м</span><b>{money(entry.total)}</b></button>
+        <div className="saved-actions"><button type="button" onClick={() => openCalculation(entry)}>Открыть</button><button type="button" onClick={() => openCalculation(entry, true)}>Создать копию</button><button type="button" className="delete-action" aria-label={`Удалить расчёт ${entry.name}`} onClick={() => deleteCalculation(entry)}>Удалить</button></div>
+      </li>)}</ul>}
+    </details>
+    {storageMessage && <p className="storage-status" role="status">{storageMessage} {deleted && <button type="button" onClick={() => { if (persistLibrary([deleted, ...library])) { setDeleted(null); setStorageMessage('Расчёт восстановлен.'); } }}>Восстановить</button>}</p>}
+    {savedPrices && <aside className="saved-price-note"><strong>{saveName || 'Сохранённый расчёт'}</strong><p>Цены зафиксированы при сохранении. Сохранить изменения можно на экране готовой сметы.</p><button type="button" disabled={!currentPrices} onClick={() => { setSavedPrices(null); setStorageMessage('Применён текущий прайс. Проверьте итог и сохраните изменения.'); }}>{currentPrices ? 'Пересчитать по текущему прайсу' : 'Загружаем текущий прайс…'}</button></aside>}
+  </section>;
+  const saveControls = <div className="result-save">
+    <button type="button" className="reset save-trigger" onClick={() => { setSaveOpen(previous => !previous); if (!saveName) setSaveName('Расчёт от ' + new Date().toLocaleDateString('ru-RU')); }}>Сохранить расчёт</button>
+    {saveOpen && <section className="save-editor" aria-label="Сохранение расчёта"><h2>{activeId ? 'Сохранить изменения' : 'Новый сохранённый расчёт'}</h2><label htmlFor="calculation-name">Клиент или адрес<input id="calculation-name" type="text" maxLength={120} placeholder="Например, Иван — забор в Истре" value={saveName} onChange={event => setSaveName(event.target.value)} /></label><p className="hint">Сохраним параметры и цены. Название можно изменить при следующем сохранении.</p><div className="save-editor-actions"><button type="button" className="primary" onClick={saveCalculation}>{activeId ? 'Обновить сохранённый расчёт' : 'Сохранить на устройстве'}</button><button type="button" className="text-button" onClick={() => setSaveOpen(false)}>Отмена</button></div></section>}
+    {error && <p className="error" role="alert">{error}</p>}
+  </div>;
+
+  if (result) return <main className="result"><button className="back" onClick={() => setResult(false)}>‹ Изменить расчёт</button><article className="quote quote-table"><header><div><small>Предварительный расчёт</small><strong>Смета на устройство забора</strong><span>от {new Date().toLocaleDateString('ru-RU')}</span></div></header><div className="estimate-table" role="table" aria-label="Подробная смета"><div className="estimate-head" role="row"><span>Работы и материалы</span><span>Ед. изм.</span><span>Кол-во</span><span>Цена, руб.</span><span>Сумма, руб.</span></div>{quote.list.map((item, index) => <div className="estimate-row" role="row" key={index}><div><b>{item.title}</b>{item.details.length > 0 && <ul className="estimate-details">{item.details.map(detail => <li key={detail}>{detail}</li>)}</ul>}</div><span>{item.unit}</span><span>{item.quantity}</span><span>{money(item.unitPrice, quote.targetApplied && index === quote.targetLineIndex)}</span><b>{money(item.amount)}</b></div>)}<div className="estimate-total" role="row"><b>Итого</b><span>Включая материалы и работы</span><b>{money(quote.total)}</b></div></div><footer><b>Предварительная смета</b><p>Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.</p></footer></article><button className="primary" onClick={shareQuoteImage}>Поделиться сметой</button>{shareMessage && <p className="share-message" role="status">{shareMessage}</p>}<p>Смета использует прайс «Цены для Авито».</p>{saveControls}{savedArea}</main>;
+  return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header>
+    <section className="hero"><span>Предварительная смета</span><b>{prices ? money(quote.total) : 'Загрузка…'}</b></section><form onSubmit={submit}>
     <section className="card mode-card"><small>Режим расчёта</small><label>Выберите режим<select value={s.mode} onChange={event => set('mode', event.target.value as State['mode'])}><option value="standard">Полная смета</option><option value="fence">Только забор</option></select></label><p className="hint">{s.mode === 'fence' ? 'В этом режиме не учитываются ворота, калитка и допработы. Доставка рассчитывается по длине участка.' : 'Настройте состав и при необходимости замените цены прайса своими.'}</p></section>
-    <section className="card fence-card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', materials[material].heights[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{materials[s.material].heights.map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{priceError && <p className="error">{priceError}</p>}{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
+    <section className="card fence-card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', materials[material].heights[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{materials[s.material].heights.map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{priceError && !savedPrices && <p className="error">{priceError}</p>}{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
     {s.extraSections.map((section, index) => <section className="card fence-card" key={section.id}>
       <small>01 · Участок забора {index + 2}</small>
       <label>Материал<select value={section.material} onChange={event => { const material = event.target.value as Material; updateSection(section.id, { material, height: materials[material].heights.includes(section.height as never) ? section.height : materials[material].heights[0] }); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
@@ -368,10 +449,10 @@ export default function Home() {
       {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, ₽', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label className="toggle-line"><input type="checkbox" checked={s.slidingEnabled} onChange={event => { set('slidingEnabled', event.target.checked); if (event.target.checked) set('slidingWidth', '4'); }} /><span>Добавить откатные ворота</span></label>
       {s.slidingEnabled && <><label className="toggle-line"><input type="checkbox" checked={s.slidingAutomation} onChange={event => set('slidingAutomation', event.target.checked)} /><span>Автоматика RTech 1000</span></label>{s.slidingAutomation && <p className="hint">Ворота с автоматикой: 4 м — 100 000 ₽, 5 м — 110 000 ₽ за штуку.</p>}<div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, ₽', 'slidingPrice', 'По прайсу')}{slidingUnitFor(s, prices) === null && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
-      <label>Калитка<select value={s.wicket} onChange={event => set('wicket', event.target.value as Wicket)}><option value="adjacent">Калитка рядом с воротами</option><option value="separate">Калитка отдельно стоящая</option><option value="none">Нет калитки</option></select></label>
+      <label>Калитка<select id="field-wicket" value={s.wicket} onChange={event => set('wicket', event.target.value as Wicket)}><option value="adjacent">Калитка рядом с воротами</option><option value="separate">Калитка отдельно стоящая</option><option value="none">Нет калитки</option></select></label>
       {s.wicket !== 'none' && <>{numericInput('Количество калиток', 'wicketCount')}{price('Своя цена калитки за единицу, ₽', 'wicketPrice', 'По прайсу')}</>}
     </section><section className="card extras-card"><small>03 · Дополнительно</small><div className="grid additional-grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}{numericInput('Забутовка щебнем на всю глубину, м', 'gravel')}{numericInput('Декоративная П-планка, м', 'pTrim')}</div>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section></>}
     {s.mode === 'fence' && <section className="card delivery-card"><small>02 · Доставка</small>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section>}
-    {error && <p className="error">{error}</p>}<button className="primary calc-submit">Показать результат →</button><button type="button" className="reset" onClick={() => { setS(initial); setNumericDrafts({}); }}>Сбросить</button>
-  </form><p className="note">Цены загружаются из таблицы «Цены для Авито». Данные расчёта остаются на устройстве.</p><details><summary>Как установить на iPhone</summary><p>Откройте сайт в Safari → «Поделиться» → «На экран Домой».</p></details></main>;
+    {error && <p className="error" role="alert">{error}</p>}<button className="primary calc-submit">Показать результат →</button><button type="button" className="reset" onClick={() => { setS(initial); setNumericDrafts({}); setActiveId(null); setSavedPrices(null); setSaveName(''); setSaveOpen(false); setError(''); setStorageMessage(''); setDeleted(null); }}>Сбросить параметры</button><p className="hint reset-explanation">Вернуть начальные значения полей. Сохранённые сметы останутся.</p>
+  </form>{savedArea}<p className="note">Цены загружаются из таблицы «Цены для Авито». Данные расчёта остаются на устройстве.</p><details><summary>Как установить на iPhone</summary><p>Откройте сайт в Safari → «Поделиться» → «На экран Домой».</p></details></main>;
 }
