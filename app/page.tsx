@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
-import { estimateMatches } from '../lib/estimate-history.mjs';
+import { estimateMatches, estimateExpiresAt, isEstimateExpired, retainRecentEstimates } from '../lib/estimate-history.mjs';
 import { PRICE_CACHE_KEY, makeDefaultPriceCache, readPriceCache, needsPriceCheck, recordPriceCheck, acceptPriceUpdate, fetchPriceCatalog } from '../lib/price-cache.mjs';
 
 const PRICE_API = 'https://fence-prices.sega881117.workers.dev/v1/prices';
@@ -204,7 +204,16 @@ export default function Home() {
         if (state.material in materials) setS({ ...initial, ...state });
       }
       const items = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]');
-      if (Array.isArray(items)) setLibrary(items.filter(item => typeof item?.id === 'string' && typeof item?.name === 'string' && item?.state?.material in materials && Array.isArray(item.state.extraSections) && item.prices && Number.isFinite(item.total)));
+      if (Array.isArray(items)) {
+        const valid: SavedCalculation[] = items.filter(item => typeof item?.id === 'string' && typeof item?.name === 'string' && item?.state?.material in materials && Array.isArray(item.state.extraSections) && item.prices && Number.isFinite(item.total));
+        const recent = retainRecentEstimates(valid);
+        setLibrary(recent);
+        if (recent.length < valid.length) {
+          localStorage.setItem(SAVED_KEY, JSON.stringify(recent));
+          if (draft?.activeId && !recent.some(item => item.id === draft.activeId)) setActiveId(null);
+          setStorageMessage('Сметы старше 72 часов удалены автоматически.');
+        }
+      }
     } catch { setStorageMessage('Не удалось прочитать сохранённые данные. Можно продолжить новый расчёт.'); }
     setReady(true);
     if (!['localhost', '127.0.0.1'].includes(location.hostname)) navigator.serviceWorker?.register('./sw.js', { updateViaCache: 'none' }).then(registration => registration.update()).catch(() => {});
@@ -252,6 +261,31 @@ export default function Home() {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ state: s, prices: savedPrices, activeId, name: saveName })); }
     catch { setStorageMessage('Не удалось сохранить черновик на устройстве. Проверьте свободное место или настройки браузера.'); }
   }, [s, savedPrices, activeId, saveName, ready]);
+  useEffect(() => {
+    if (!ready) return;
+    const cleanup = () => {
+      if (deleted && isEstimateExpired(deleted)) setDeleted(null);
+      const recent = retainRecentEstimates(library);
+      if (recent.length === library.length) return;
+      try {
+        localStorage.setItem(SAVED_KEY, JSON.stringify(recent));
+        setLibrary(recent);
+        if (activeId && !recent.some(item => item.id === activeId)) setActiveId(null);
+        setStorageMessage('Сметы старше 72 часов удалены автоматически.');
+      } catch { setStorageMessage('Не удалось удалить просроченные сметы из памяти браузера. Проверьте настройки хранения данных.'); }
+    };
+    cleanup();
+    const deadlines = [...library, ...(deleted ? [deleted] : [])].map(estimateExpiresAt).filter(time => Number.isFinite(time));
+    const timer = deadlines.length ? window.setTimeout(cleanup, Math.max(0, Math.min(...deadlines) - Date.now())) : undefined;
+    const onResume = () => { if (document.visibilityState === 'visible') cleanup(); };
+    window.addEventListener('focus', onResume);
+    document.addEventListener('visibilitychange', onResume);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('focus', onResume);
+      document.removeEventListener('visibilitychange', onResume);
+    };
+  }, [ready, library, activeId, deleted]);
   const set = <K extends keyof State>(key: K, value: State[K]) => setS(previous => ({ ...previous, [key]: value }));
   const updateSection = (id: string, changes: Partial<FenceSection>) => setS(previous => ({ ...previous, extraSections: previous.extraSections.map(section => section.id === id ? { ...section, ...changes } : section) }));
   const quote = useMemo(() => { return calculateQuote(s, prices); }, [s, prices]);
@@ -414,10 +448,18 @@ export default function Home() {
     return '';
   };
   const persistLibrary = (items: SavedCalculation[]) => {
-    try { localStorage.setItem(SAVED_KEY, JSON.stringify(items)); setLibrary(items); return true; }
+    const recent = retainRecentEstimates(items);
+    try { localStorage.setItem(SAVED_KEY, JSON.stringify(recent)); setLibrary(recent); return true; }
     catch { setStorageMessage('Не удалось сохранить расчёт. Проверьте свободное место или настройки браузера.'); return false; }
   };
   const openCalculation = (entry: SavedCalculation, copy = false) => {
+    if (isEstimateExpired(entry)) {
+      if (persistLibrary(library.filter(item => item.id !== entry.id))) {
+        if (activeId === entry.id) setActiveId(null);
+        setStorageMessage('Срок хранения этой сметы истёк — она удалена автоматически.');
+      }
+      return;
+    }
     setS(structuredClone(entry.state)); setSavedPrices({ ...entry.prices }); setNumericDrafts({});
     setActiveId(copy ? null : entry.id); setSaveName(copy ? entry.name + ' — копия' : entry.name);
     setError(''); setResult(false); setLibraryOpen(false);
@@ -436,10 +478,11 @@ export default function Home() {
     const message = validationMessage(next);
     if (message) { setError(message); return; }
     const calculated = calculateQuote(next, prices);
-    const previous = library.find(item => item.id === activeId);
+    const recent = retainRecentEstimates(library);
+    const previous = recent.find(item => item.id === activeId);
     const unchanged = previous && estimateMatches(previous, next, prices, calculated.total);
     const entry: SavedCalculation = unchanged ? previous : { id: crypto.randomUUID(), name: autoCalculationName(next), updatedAt: new Date().toISOString(), state: structuredClone(next), prices: {...prices}, total: calculated.total };
-    const saved = !!unchanged || persistLibrary([entry, ...library]);
+    const saved = unchanged ? (recent.length === library.length || persistLibrary(recent)) : persistLibrary([entry, ...recent]);
     if (saved) {
       setActiveId(entry.id); setSaveName(entry.name); setSavedPrices(entry.prices);
       setStorageMessage(unchanged ? 'Расчёт уже сохранён. Изменений нет.' : previous ? 'Новый вариант сохранён. Предыдущая смета осталась в «Моих расчётах».' : 'Расчёт сохранён автоматически.');
@@ -453,13 +496,13 @@ export default function Home() {
   const savedArea = <section id="saved-calculations" className="calculation-footer" aria-label="Сохранённые расчёты">
     <details className="calculation-library" open={libraryOpen} onToggle={event => setLibraryOpen(event.currentTarget.open)}>
       <summary>Мои расчёты <span>{library.length}</span></summary>
-      <p className="hint">Сохраняются в этом браузере. На другом устройстве список будет отдельным.</p>
+      <p className="hint">Сметы хранятся в этом браузере 72 часа с момента создания, затем удаляются автоматически. Если калькулятор закрыт — при следующем открытии. На другом устройстве список будет отдельным.</p>
       {library.length === 0 ? <p className="library-empty">Нажмите «Показать результат» — расчёт сохранится здесь автоматически.</p> : <ul className="saved-list">{library.map(entry => <li key={entry.id}>
         <button type="button" className="saved-open" onClick={() => openCalculation(entry)}><strong>{entry.name}</strong><span><time dateTime={entry.updatedAt}>{new Date(entry.updatedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</time> · {totalLengthFor(entry.state)} м</span><b>{money(entry.total)}</b></button>
         <div className="saved-actions"><button type="button" onClick={() => openCalculation(entry)}>Открыть</button><button type="button" onClick={() => openCalculation(entry, true)}>Создать копию</button><button type="button" className="delete-action" aria-label={`Удалить расчёт ${entry.name}`} onClick={() => deleteCalculation(entry)}>Удалить</button></div>
       </li>)}</ul>}
     </details>
-    {storageMessage && <p className="storage-status" role="status">{storageMessage} {deleted && <button type="button" onClick={() => { if (persistLibrary([deleted, ...library])) { setDeleted(null); setStorageMessage('Расчёт восстановлен.'); } }}>Восстановить</button>}</p>}
+    {storageMessage && <p className="storage-status" role="status">{storageMessage} {deleted && <button type="button" onClick={() => { if (isEstimateExpired(deleted)) { setDeleted(null); setStorageMessage('Срок хранения этой сметы истёк. Восстановить её уже нельзя.'); } else if (persistLibrary([deleted, ...library])) { setDeleted(null); setStorageMessage('Расчёт восстановлен.'); } }}>Восстановить</button>}</p>}
     {savedPrices && <aside className="saved-price-note"><strong>{saveName || 'Сохранённый расчёт'}</strong><p>Цены этой сметы зафиксированы. Если изменить параметры и нажать «Показать результат», сохранится новая смета; эта останется в списке.</p><button type="button" disabled={!currentPrices} onClick={() => { setSavedPrices(null); setStorageMessage('Применён текущий прайс. Проверьте итог и сохраните изменения.'); }}>{currentPrices ? 'Пересчитать по текущему прайсу' : 'Загружаем текущий прайс…'}</button></aside>}
     <aside className="saved-price-note" aria-label="Обновление прайса">
       <p>Прайс от {priceCache.asOf.split('-').reverse().join('.')} · проверка раз в неделю.</p>
