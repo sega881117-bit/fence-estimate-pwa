@@ -455,7 +455,7 @@ export default function Home() {
       <summary>Мои расчёты <span>{library.length}</span></summary>
       <p className="hint">Сохраняются в этом браузере. На другом устройстве список будет отдельным.</p>
       {library.length === 0 ? <p className="library-empty">Нажмите «Показать результат» — расчёт сохранится здесь автоматически.</p> : <ul className="saved-list">{library.map(entry => <li key={entry.id}>
-        <button type="button" className="saved-open" onClick={() => openCalculation(entry)}><strong>{entry.name}</strong><span>{new Date(entry.updatedAt).toLocaleDateString('ru-RU')} · {totalLengthFor(entry.state)} м</span><b>{money(entry.total)}</b></button>
+        <button type="button" className="saved-open" onClick={() => openCalculation(entry)}><strong>{entry.name}</strong><span><time dateTime={entry.updatedAt}>{new Date(entry.updatedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</time> · {totalLengthFor(entry.state)} м</span><b>{money(entry.total)}</b></button>
         <div className="saved-actions"><button type="button" onClick={() => openCalculation(entry)}>Открыть</button><button type="button" onClick={() => openCalculation(entry, true)}>Создать копию</button><button type="button" className="delete-action" aria-label={`Удалить расчёт ${entry.name}`} onClick={() => deleteCalculation(entry)}>Удалить</button></div>
       </li>)}</ul>}
     </details>
