@@ -26,7 +26,7 @@ assert.equal(fractional.fenceAmount, 240000);
 assert.ok(fractional.unitPrice > 2666 && fractional.unitPrice < 2667);
 for (const amount of [fractional.unitPrice, 2100, 17.5, 248000.25, 0]) {
   const display = money(amount).replace(/[\s\u00a0\u202f]/g, '');
-  assert.equal(display, Math.round(amount) + '₽');
+  assert.equal(display, Math.round(amount) + 'руб.');
 }
 assert.ok(!source.includes('money(item.unitPrice,'));
 console.log('PASS: whole-ruble display including fractional target-derived unit prices; exact quote amounts preserved');

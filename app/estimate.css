@@ -1,0 +1,65 @@
+/* Quote presentation matches amoCRM quoteDocument (fence-estimate-v1).
+   Form controls retain their existing design; only the client document changes. */
+.result.result { max-width: 1000px !important; }
+.result .quote-table {
+  container-type: inline-size;
+  font-family: Arial, sans-serif;
+  color: #112d63;
+  border-color: #d5e7f9;
+  border-radius: 0;
+  font-variant-numeric: tabular-nums;
+}
+.result .quote-table header {
+  padding: clamp(16px, 3.39cqi, 42px) clamp(14px, 3.71cqi, 46px) clamp(14px, 2.34cqi, 29px);
+  background: #f8fbff;
+  border-color: #d5e7f9;
+}
+.result .quote-table header small {
+  margin-bottom: clamp(7px, 1.05cqi, 13px);
+  font-size: clamp(9px, 1.53cqi, 19px);
+  font-weight: 700;
+  letter-spacing: normal;
+  color: #345785;
+}
+.result .quote-table header strong {
+  margin: 0;
+  font-size: clamp(18px, 3.15cqi, 39px);
+  line-height: 1.08;
+  color: #0c2862;
+}
+.result .quote-table header span {
+  margin-top: clamp(8px, 1.29cqi, 16px);
+  font-size: clamp(10px, 1.61cqi, 20px);
+  color: #42658f;
+}
+.result .estimate-head, .result .estimate-row, .result .estimate-total {
+  grid-template-columns: minmax(0,50.2fr) minmax(0,9.8fr) minmax(0,9.1fr) minmax(0,14.3fr) minmax(0,16.6fr) !important;
+}
+.result .estimate-head, .result .estimate-total {
+  background: #d7e9fb !important;
+  color: #102d64 !important;
+}
+.result .estimate-head { font-size: clamp(7px, 1.45cqi, 18px); font-weight: 700; }
+.result .estimate-head span, .result .estimate-row > * {
+  padding: clamp(7px, 1.05cqi, 13px) clamp(3px, 1.29cqi, 16px);
+  border-color: #d5e7f9;
+}
+.result .estimate-row { border-color: #d5e7f9; }
+.result .estimate-row > div { font-size: clamp(9px, 1.61cqi, 20px); line-height: 1.27; }
+.result .estimate-row b { font-size: clamp(9px, 1.77cqi, 22px); color: #102d64; }
+.result .estimate-row > span, .result .estimate-row > b {
+  font-size: clamp(8px, 1.53cqi, 19px);
+  line-height: 1.25;
+  color: #0f2c63;
+  letter-spacing: normal;
+}
+.result .estimate-details { margin: clamp(5px,1.05cqi,13px) 0 3px; color: #43658c; font-size: clamp(8px,1.45cqi,18px); line-height: 1.3; }
+.result .estimate-details li { display: block; margin: 3px 0; }
+.result .estimate-details li::before { content: '— '; color: inherit; font-weight: 700; }
+.result .estimate-total { display: grid !important; gap: 0; }
+.result .estimate-total > * { padding: clamp(12px,1.94cqi,24px) clamp(4px,1.13cqi,14px); }
+.result .estimate-total > b:first-child { grid-column: 1 / 4; text-align: left; font-size: clamp(12px,2.26cqi,28px); }
+.result .estimate-total span { font-size: clamp(8px,1.29cqi,16px); line-height: 1.2; }
+.result .estimate-total > b:last-child { text-align: right !important; font-size: clamp(9px,1.77cqi,22px); white-space: nowrap; }
+.result .quote-table footer { padding: clamp(13px,2.26cqi,28px) clamp(14px,3.23cqi,40px); background: #f8fbff; color: #112d63; font-size: clamp(11px,1.77cqi,22px); }
+.result .quote-table footer p { color: #345785; font-size: clamp(10px,1.45cqi,18px); line-height: 1.35; }

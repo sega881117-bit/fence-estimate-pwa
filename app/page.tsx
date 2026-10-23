@@ -1,5 +1,7 @@
 'use client';
 
+import './estimate.css';
+
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
 import { estimateMatches, estimateExpiresAt, isEstimateExpired, retainRecentEstimates } from '../lib/estimate-history.mjs';
@@ -49,7 +51,7 @@ const numericRules: Record<NumericKey, { min: number; integer?: boolean; blankWh
   swingCount: { min: 1, integer: true }, slidingCount: { min: 1, integer: true }, wicketCount: { min: 1, integer: true }, wicketPrice: { min: 0, blankWhenZero: true },
   deliveryPrice: { min: 0, blankWhenZero: true }, extension: { min: 0 }, paint: { min: 0 }, gravel: { min: 0 }, pTrim: { min: 0 },
 };
-const money = (value: number) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
+const money = (value: number) => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value) + ' руб.';
 const gateCount = (value: GateCount) => typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
 const rate = (prices: PriceCatalog | null, key: string) => Number(prices?.[key]) || 0;
 const materialPriceKey = (material: Material, height: string) => (materials[material].priceKeys as Record<string, string>)[height] || '';
@@ -140,7 +142,7 @@ const calculateQuote = (s: State, prices: PriceCatalog | null) => {
     const totalLength = totalLengthFor(s);
     const automaticDelivery = totalLength <= 60 ? rate(prices, 'delivery_0_60') : totalLength <= 120 ? rate(prices, 'delivery_61_120') : rate(prices, 'delivery_121_plus');
     const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : automaticDelivery;
-    list.push({ title: 'Доставка', details: [], unit: 'шт.', quantity: 1, unitPrice: delivery, amount: delivery, manual: s.deliveryPrice > 0, requiresReview: s.deliveryPrice > 0 });
+    list.push({ title: 'Доставка', details: ['доставка материалов и бригады.'], unit: 'рейс', quantity: 1, unitPrice: delivery, amount: delivery, manual: s.deliveryPrice > 0, requiresReview: s.deliveryPrice > 0 });
     const fixedTotal = list.slice(sections.length).reduce((sum, item) => sum + item.amount, 0);
     let targetError = '';
     let targetApplied = false;
@@ -295,7 +297,7 @@ export default function Home() {
     const width = 1400;
     const padding = 40;
     const tableWidth = width - padding * 2;
-    const columns = [660, 130, 120, 190, 220];
+    const columns = [0.502, 0.098, 0.091, 0.143, 0.166].map(part => tableWidth * part);
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas недоступен');
     const wrap = (text: string, maxWidth: number, font: string) => {
@@ -311,9 +313,9 @@ export default function Home() {
       return lines;
     };
     const rows = quote.list.map(item => {
-      const title = wrap(item.title, columns[0] - 28, '700 18px Arial');
-      const details = item.details.flatMap(detail => wrap(`— ${detail}`, columns[0] - 42, '15px Arial'));
-      const leftHeight = 20 + title.length * 23 + (details.length ? 7 + details.length * 19 : 0) + 18;
+      const title = wrap(item.title, columns[0] - 28, '700 23px Arial');
+      const details = item.details.flatMap(detail => wrap(`— ${detail}`, columns[0] - 42, '19px Arial'));
+      const leftHeight = 20 + title.length * 28 + (details.length ? 7 + details.length * 25 : 0) + 18;
       return { item, title, details, height: Math.max(68, leftHeight) };
     });
     const headerHeight = 54;
@@ -322,23 +324,23 @@ export default function Home() {
     canvas.width = width * scale;
     canvas.height = height * scale;
     context.scale(scale, scale);
-    context.fillStyle = '#f7fbff';
+    context.fillStyle = '#f8fbff';
     context.fillRect(0, 0, width, height);
     context.fillStyle = '#ffffff';
     context.fillRect(padding, 28, tableWidth, height - 56);
-    context.strokeStyle = '#d8eafe';
+    context.strokeStyle = '#d5e7f9';
     context.lineWidth = 2;
     context.strokeRect(padding, 28, tableWidth, height - 56);
-    context.fillStyle = '#f7fbff';
+    context.fillStyle = '#f8fbff';
     context.fillRect(padding, 28, tableWidth, 138);
-    context.strokeStyle = '#d8eafe';
+    context.strokeStyle = '#d5e7f9';
     context.beginPath(); context.moveTo(padding, 166); context.lineTo(padding + tableWidth, 166); context.stroke();
-    context.fillStyle = '#34537d'; context.font = '700 15px Arial'; context.fillText('ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ', padding + 24, 66);
-    context.fillStyle = '#071d55'; context.font = '700 31px Arial'; context.fillText('Смета на устройство забора', padding + 24, 108);
-    context.fillStyle = '#34537d'; context.font = '16px Arial'; context.fillText(`от ${new Date().toLocaleDateString('ru-RU')}`, padding + 24, 138);
+    context.fillStyle = '#43658c'; context.font = '700 19px Arial'; context.fillText('ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ', padding + 24, 66);
+    context.fillStyle = '#102d64'; context.font = '700 41px Arial'; context.fillText('Смета на устройство забора', padding + 24, 108);
+    context.fillStyle = '#43658c'; context.font = '21px Arial'; context.fillText(`от ${new Date().toLocaleDateString('ru-RU')}`, padding + 24, 138);
     let y = 166;
-    context.fillStyle = '#d8eafe'; context.fillRect(padding, y, tableWidth, headerHeight);
-    context.fillStyle = '#071d55'; context.font = '700 14px Arial';
+    context.fillStyle = '#d7e9fb'; context.fillRect(padding, y, tableWidth, headerHeight);
+    context.fillStyle = '#102d64'; context.font = '700 19px Arial';
     const labels = ['Работы и материалы', 'Ед. изм.', 'Кол-во', 'Цена, руб.', 'Сумма, руб.'];
     let x = padding;
     labels.forEach((label, index) => { context.textAlign = index === 0 ? 'left' : 'center'; context.fillText(label, x + (index === 0 ? 12 : columns[index] / 2), y + 32); x += columns[index]; });
@@ -349,36 +351,31 @@ export default function Home() {
     };
     rows.forEach(({ item, title, details, height: rowHeight }) => {
       context.fillStyle = '#ffffff'; context.fillRect(padding, y, tableWidth, rowHeight);
-      context.strokeStyle = '#d8eafe'; context.beginPath(); context.moveTo(padding, y + rowHeight); context.lineTo(padding + tableWidth, y + rowHeight); context.stroke();
+      context.strokeStyle = '#d5e7f9'; context.beginPath(); context.moveTo(padding, y + rowHeight); context.lineTo(padding + tableWidth, y + rowHeight); context.stroke();
       let lineX = padding;
       columns.slice(0, -1).forEach(column => { lineX += column; context.beginPath(); context.moveTo(lineX, y); context.lineTo(lineX, y + rowHeight); context.stroke(); });
-      drawCellLines(title, padding + 14, y + 25, '700 18px Arial', '#071d55', 'left', 23);
-      drawCellLines(details, padding + 22, y + 31 + title.length * 23, '15px Arial', '#34537d', 'left', 19);
+      drawCellLines(title, padding + 14, y + 25, '700 23px Arial', '#102d64', 'left', 28);
+      drawCellLines(details, padding + 22, y + 31 + title.length * 28, '19px Arial', '#43658c', 'left', 25);
       const values = [item.unit, String(item.quantity), money(item.unitPrice), money(item.amount)];
       let valueX = padding + columns[0];
       values.forEach((value, index) => {
         const columnWidth = columns[index + 1];
-        drawCellLines([value], valueX + columnWidth / 2, y + rowHeight / 2 + 5, index === 3 ? '700 15px Arial' : '15px Arial', '#071d55', 'center');
+        drawCellLines([value], valueX + columnWidth / 2, y + rowHeight / 2 + 5, index === 3 ? '700 19px Arial' : '19px Arial', '#102d64', 'center');
         valueX += columnWidth;
       });
       y += rowHeight;
     });
-    context.fillStyle = '#d8eafe'; context.fillRect(padding, y, tableWidth, 72);
+    context.fillStyle = '#d7e9fb'; context.fillRect(padding, y, tableWidth, 72);
     const totalBaseline = y + 43;
-    context.font = '700 21px Arial'; const totalLabelWidth = context.measureText('Итого').width;
-    context.font = '15px Arial'; const totalNoteWidth = context.measureText('Включая материалы и работы').width;
-    context.font = '700 23px Arial'; const totalValueWidth = context.measureText(money(quote.total)).width;
-    const totalGap = 18;
-    let totalX = padding + (tableWidth - totalLabelWidth - totalNoteWidth - totalValueWidth - totalGap * 2) / 2;
-    context.fillStyle = '#071d55'; context.textAlign = 'left'; context.font = '700 21px Arial'; context.fillText('Итого', totalX, totalBaseline);
-    totalX += totalLabelWidth + totalGap;
-    context.font = '15px Arial'; context.fillText('Включая материалы и работы', totalX, totalBaseline);
-    totalX += totalNoteWidth + totalGap;
-    context.font = '700 23px Arial'; context.fillText(money(quote.total), totalX, totalBaseline);
+    context.fillStyle = '#102d64'; context.textAlign = 'left'; context.font = '700 21px Arial'; context.fillText('Итого', padding + 14, totalBaseline);
+    const captionX = padding + columns[0] + columns[1] + columns[2] + 12;
+    const caption = wrap('Включая материалы и работы', columns[3] - 24, '19px Arial');
+    drawCellLines(caption, captionX, y + 36 - (caption.length - 1) * 9, '19px Arial', '#102d64', 'left', 18);
+    context.textAlign = 'right'; context.font = '700 23px Arial'; context.fillText(money(quote.total), padding + tableWidth - 14, totalBaseline);
     y += 72;
-    context.fillStyle = '#f7fbff'; context.fillRect(padding, y, tableWidth, footerHeight);
-    context.fillStyle = '#071d55'; context.textAlign = 'left'; context.font = '700 16px Arial'; context.fillText('Предварительная смета', padding + 18, y + 37);
-    context.fillStyle = '#34537d'; context.font = '15px Arial'; context.fillText('Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.', padding + 18, y + 66);
+    context.fillStyle = '#f8fbff'; context.fillRect(padding, y, tableWidth, footerHeight);
+    context.fillStyle = '#102d64'; context.textAlign = 'left'; context.font = '700 21px Arial'; context.fillText('Предварительная смета', padding + 18, y + 37);
+    context.fillStyle = '#43658c'; context.font = '19px Arial'; context.fillText('Действует 7 календарных дней. Окончательная стоимость уточняется после выезда на объект.', padding + 18, y + 66);
     const data = canvas.toDataURL('image/png').split(',')[1];
     const bytes = Uint8Array.from(atob(data), char => char.charCodeAt(0));
     return new File([bytes], 'smeta-zabora.png', { type: 'image/png' });
@@ -515,7 +512,7 @@ export default function Home() {
   return <main className="app"><header className="head"><span className="mark">⌁</span><div><small>Локальный расчёт</small><h1>Смета забора</h1></div></header>
     <section className="hero"><span>Предварительная смета</span><b>{prices ? money(quote.total) : 'Загрузка…'}</b></section><form onSubmit={submit}>
     <section className="card mode-card"><small>Режим расчёта</small><label>Выберите режим<select value={s.mode} onChange={event => set('mode', event.target.value as State['mode'])}><option value="standard">Полная смета</option><option value="fence">Только забор</option></select></label><p className="hint">{s.mode === 'fence' ? 'В этом режиме не учитываются ворота, калитка и допработы. Доставка рассчитывается по длине участка.' : 'Настройте состав и при необходимости замените цены прайса своими.'}</p></section>
-    <section className="card fence-card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', materials[material].heights[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{materials[s.material].heights.map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, ₽', 'fencePrice', 'Например, 2800')}</section>
+    <section className="card fence-card"><small>01 · Участок забора</small><label>Материал<select value={s.material} onChange={event => { const material = event.target.value as Material; set('material', material); set('height', materials[material].heights[0]); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label><div className="grid"><label>Высота, м<select value={s.height} onChange={event => set('height', event.target.value)}>{materials[s.material].heights.map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>{numericInput('Длина, м', 'length')}</div>{price('Своя цена забора за метр, руб.', 'fencePrice', 'Например, 2800')}</section>
     {s.extraSections.map((section, index) => <section className="card fence-card" key={section.id}>
       <small>01 · Участок забора {index + 2}</small>
       <label>Материал<select value={section.material} onChange={event => { const material = event.target.value as Material; updateSection(section.id, { material, height: materials[material].heights.includes(section.height as never) ? section.height : materials[material].heights[0] }); }}>{Object.entries(materials).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select></label>
@@ -523,12 +520,12 @@ export default function Home() {
         <label>Высота, м<select value={section.height} onChange={event => updateSection(section.id, { height: event.target.value })}>{materials[section.material].heights.map(height => <option key={height} value={height}>{height.replace('.', ',')}</option>)}</select></label>
         <label>Длина, м<input type="number" min="1" step="1" inputMode="numeric" required value={section.length} onChange={event => updateSection(section.id, { length: event.target.value === '' ? '' : Number(event.target.value) })} /></label>
       </div>
-      <label>Своя цена забора за метр, ₽<input type="number" min="0" step="any" inputMode="decimal" placeholder="По прайсу" value={section.fencePrice || ''} onChange={event => updateSection(section.id, { fencePrice: event.target.value === '' ? '' : Number(event.target.value) })} /><span className="hint">Необязательно: пустое поле использует цену прайса.</span></label>
+      <label>Своя цена забора за метр, руб.<input type="number" min="0" step="any" inputMode="decimal" placeholder="По прайсу" value={section.fencePrice || ''} onChange={event => updateSection(section.id, { fencePrice: event.target.value === '' ? '' : Number(event.target.value) })} /><span className="hint">Необязательно: пустое поле использует цену прайса.</span></label>
       <button type="button" className="reset" onClick={() => setS(previous => ({ ...previous, extraSections: previous.extraSections.filter(item => item.id !== section.id), targetSection: previous.targetSection === section.id ? 'first' : previous.targetSection }))}>Удалить участок {index + 2}</button>
     </section>)}
     <button type="button" className="reset" onClick={() => setS(previous => ({ ...previous, extraSections: [...previous.extraSections, { id: crypto.randomUUID(), material: 'picket_single', height: '2', length: '', fencePrice: '' }] }))}>+ Добавить участок забора</button>
     <section className="card total-card"><small>Общий расчёт</small><p className="hint">Общая длина: {totalLengthFor(s)} м. Доставка рассчитывается один раз на все участки.</p>
-      {numericInput('Желаемый итог всей сметы, ₽', 'targetTotal', 'Например, 100000')}
+      {numericInput('Желаемый итог всей сметы, руб.', 'targetTotal', 'Например, 100000')}
       {s.targetTotal > 0 && <>
         {s.extraSections.length > 0 && <label>Рассчитать цену за метр для участка<select value={s.targetSection} onChange={event => set('targetSection', event.target.value)}>{sectionsFor(s).map((section, index) => <option key={section.id} value={section.id}>Участок {index + 1} — {materials[section.material].label}</option>)}</select></label>}
         <p className="hint">Цена выбранного участка рассчитывается из остатка желаемого итога. Цены остальных участков сохраняются.</p>
@@ -537,13 +534,13 @@ export default function Home() {
     </section>
     {s.mode === 'standard' && <><section className="card gates-card"><small>02 · Ворота и калитка</small>
       <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => { set('swingEnabled', event.target.checked); if (event.target.checked) set('swingWidth', '4'); }} /><span>Добавить распашные ворота</span></label>
-      {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, ₽', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
+      {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, руб.', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label className="toggle-line"><input type="checkbox" checked={s.slidingEnabled} onChange={event => { set('slidingEnabled', event.target.checked); if (event.target.checked) set('slidingWidth', '4'); }} /><span>Добавить откатные ворота</span></label>
-      {s.slidingEnabled && <><label className="toggle-line"><input type="checkbox" checked={s.slidingAutomation} onChange={event => set('slidingAutomation', event.target.checked)} /><span>Автоматика RTech 1000</span></label>{s.slidingAutomation && <p className="hint">Ворота с автоматикой: 4 м — 100 000 ₽, 5 м — 110 000 ₽ за штуку.</p>}<div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, ₽', 'slidingPrice', 'По прайсу')}{slidingUnitFor(s, prices) === null && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
+      {s.slidingEnabled && <><label className="toggle-line"><input type="checkbox" checked={s.slidingAutomation} onChange={event => set('slidingAutomation', event.target.checked)} /><span>Автоматика RTech 1000</span></label>{s.slidingAutomation && <p className="hint">Ворота с автоматикой: 4 м — 100 000 руб., 5 м — 110 000 руб. за штуку.</p>}<div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, руб.', 'slidingPrice', 'По прайсу')}{slidingUnitFor(s, prices) === null && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label>Калитка<select id="field-wicket" value={s.wicket} onChange={event => set('wicket', event.target.value as Wicket)}><option value="adjacent">Калитка рядом с воротами</option><option value="separate">Калитка отдельно стоящая</option><option value="none">Нет калитки</option></select></label>
-      {s.wicket !== 'none' && <>{numericInput('Количество калиток', 'wicketCount')}{price('Своя цена калитки за единицу, ₽', 'wicketPrice', 'По прайсу')}</>}
-    </section><section className="card extras-card"><small>03 · Дополнительно</small><div className="grid additional-grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}{numericInput('Забутовка щебнем на всю глубину, м', 'gravel')}{numericInput('Декоративная П-планка, м', 'pTrim')}</div>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section></>}
-    {s.mode === 'fence' && <section className="card delivery-card"><small>02 · Доставка</small>{price('Своя стоимость доставки, ₽', 'deliveryPrice', 'По метражу')}</section>}
+      {s.wicket !== 'none' && <>{numericInput('Количество калиток', 'wicketCount')}{price('Своя цена калитки за единицу, руб.', 'wicketPrice', 'По прайсу')}</>}
+    </section><section className="card extras-card"><small>03 · Дополнительно</small><div className="grid additional-grid">{numericInput('Удлинение столбов, м', 'extension')}{numericInput('Покраска каркаса, м', 'paint')}{numericInput('Забутовка щебнем на всю глубину, м', 'gravel')}{numericInput('Декоративная П-планка, м', 'pTrim')}</div>{price('Своя стоимость доставки, руб.', 'deliveryPrice', 'По метражу')}</section></>}
+    {s.mode === 'fence' && <section className="card delivery-card"><small>02 · Доставка</small>{price('Своя стоимость доставки, руб.', 'deliveryPrice', 'По метражу')}</section>}
     {error && <p className="error" role="alert">{error}</p>}<button className="primary calc-submit">Показать результат →</button><button type="button" className="reset" onClick={() => { setS(initial); setNumericDrafts({}); setActiveId(null); setSavedPrices(null); setSaveName(''); setError(''); setStorageMessage(''); setDeleted(null); }}>Сбросить параметры</button><p className="hint reset-explanation">Вернуть начальные значения полей. Сохранённые сметы останутся.</p>
   </form>{savedArea}<p className="note">Цены загружаются из таблицы «Цены для Авито». Данные расчёта остаются на устройстве.</p><details><summary>Как установить на iPhone</summary><p>Откройте сайт в Safari → «Поделиться» → «На экран Домой».</p></details></main>;
 }
