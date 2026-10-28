@@ -1,0 +1,8 @@
+.swing-gate-fields { min-width: 0; margin: 0 0 18px; padding: 10px 0 18px; border: 0; border-bottom: 1px solid #cbdced; }
+.swing-gate-fields legend { padding: 0; color: #112d63; font-size: 14px; font-weight: 700; }
+.swing-gate-fields label { min-width: 0; }
+.swing-gate-fields .gate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
+.swing-gate-fields .gate-grid > label { display: grid; grid-template-rows: 36px 47px; align-items: end; }
+.swing-gate-fields .gate-grid input, .swing-gate-fields .gate-grid select { width: 100%; height: 47px; }
+.swing-gate-remove { min-height: 44px; padding: 8px 0; border: 0; color: #8b2935; background: transparent; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.swing-gate-remove:focus-visible { outline: 2px solid #1478ed; outline-offset: 3px; }

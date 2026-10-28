@@ -1,6 +1,7 @@
 'use client';
 
 import './estimate.css';
+import './gate-fields.css';
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { deriveFenceUnitPrice } from '../lib/target-fence-price.mjs';
@@ -24,12 +25,13 @@ type Material = keyof typeof materials;
 type PriceCatalog = Record<string, number>;
 type Wicket = 'adjacent' | 'separate' | 'none';
 type GateCount = number | '';
+type SwingGate = { id: string; width: string; count: GateCount; price: number | '' };
 type FenceSection = { id: string; material: Material; height: string; length: number | ''; fencePrice: number | '' };
 type NumericKey = 'length' | 'fencePrice' | 'targetTotal' | 'swingPrice' | 'slidingPrice' | 'swingCount' | 'slidingCount' | 'wicketPrice' | 'wicketCount' | 'deliveryPrice' | 'extension' | 'paint' | 'gravel' | 'pTrim';
 type State = {
   extraSections: FenceSection[]; targetSection: string;
   mode: 'standard' | 'fence'; material: Material; height: string; length: number; fencePrice: number; targetTotal: number;
-  swingEnabled: boolean; swingWidth: string; swingPrice: number; swingCount: GateCount;
+  swingEnabled: boolean; swingWidth: string; swingPrice: number; swingCount: GateCount; extraSwingGates?: SwingGate[];
   slidingEnabled: boolean; slidingAutomation: boolean; slidingWidth: string; slidingPrice: number; slidingCount: GateCount;
   wicket: Wicket; wicketPrice: number; wicketCount: number;
   deliveryPrice: number; extension: number; paint: number; gravel: number; pTrim: number;
@@ -41,7 +43,7 @@ const DRAFT_KEY = 'fence-estimate-draft-v2';
 const initial: State = {
   extraSections: [], targetSection: 'first',
   mode: 'standard', material: 'profile_one', height: '2', length: 70, fencePrice: 0, targetTotal: 0,
-  swingEnabled: true, swingWidth: '4', swingPrice: 0, swingCount: 1,
+  swingEnabled: true, swingWidth: '4', swingPrice: 0, swingCount: 1, extraSwingGates: [],
   slidingEnabled: false, slidingAutomation: false, slidingWidth: '4', slidingPrice: 0, slidingCount: 1,
   wicket: 'adjacent', wicketPrice: 0, wicketCount: 1, deliveryPrice: 0, extension: 0, paint: 0, gravel: 0, pTrim: 0,
 };
@@ -54,6 +56,8 @@ const numericRules: Record<NumericKey, { min: number; integer?: boolean; blankWh
 const money = (value: number) => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value) + ' руб.';
 const gateCount = (value: GateCount) => typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
 const rate = (prices: PriceCatalog | null, key: string) => Number(prices?.[key]) || 0;
+const swingGatesFor = (s: State): SwingGate[] => s.swingEnabled ? [{ id: 'first', width: s.swingWidth, count: s.swingCount, price: s.swingPrice }, ...(s.extraSwingGates ?? [])] : [];
+const swingUnitFor = (gate: SwingGate, prices: PriceCatalog | null): number | null => Number(gate.price) > 0 ? Number(gate.price) : gate.width === '5' ? rate(prices, 'swing_5') : ['3', '3.5', '4'].includes(gate.width) ? rate(prices, 'swing_3_4') : null;
 const materialPriceKey = (material: Material, height: string) => (materials[material].priceKeys as Record<string, string>)[height] || '';
 const sectionsFor = (s: State): FenceSection[] => [{ id: 'first', material: s.material, height: s.height, length: s.length, fencePrice: s.fencePrice }, ...s.extraSections];
 const totalLengthFor = (s: State) => sectionsFor(s).reduce((sum, section) => sum + Number(section.length), 0);
@@ -74,9 +78,8 @@ const fixedTotalFor = (s: State, prices: PriceCatalog | null) => {
   const delivery = s.deliveryPrice > 0 ? s.deliveryPrice : length <= 60 ? rate(prices, 'delivery_0_60') : length <= 120 ? rate(prices, 'delivery_61_120') : rate(prices, 'delivery_121_plus');
   if (s.mode === 'fence') return delivery;
   let total = 0;
-  if (s.swingEnabled) {
-    const unit = s.swingPrice > 0 ? s.swingPrice : s.swingWidth === '5' ? rate(prices, 'swing_5') : ['3', '3.5', '4'].includes(s.swingWidth) ? rate(prices, 'swing_3_4') : 0;
-    total += unit * gateCount(s.swingCount);
+  for (const gate of swingGatesFor(s)) {
+    total += (swingUnitFor(gate, prices) ?? 0) * gateCount(gate.count);
   }
   if (s.slidingEnabled) {
     const unit = slidingUnitFor(s, prices) ?? 0;
@@ -121,9 +124,9 @@ const calculateQuote = (s: State, prices: PriceCatalog | null) => {
       list.push({ ...fence, unit: 'м.п.', quantity: Number(section.length), unitPrice: unit, amount: Number(section.length) * unit, manual: Number(section.fencePrice) > 0 });
     }
     if (s.mode === 'standard') {
-      if (s.swingEnabled) {
-        const unit = s.swingPrice > 0 ? s.swingPrice : s.swingWidth === '5' ? rate(prices, 'swing_5') : ['3', '3.5', '4'].includes(s.swingWidth) ? rate(prices, 'swing_3_4') : null;
-        if (unit !== null) list.push({ title: 'Каркас распашных ворот ' + s.swingWidth.replace('.', ',') + '×' + s.height.replace('.', ',') + ' м, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', 'столбы 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'изнутри запирающее устройство «гусь» с проушинами для замка;', '2 нижних стопора;', 'петли 25×120 мм.'], unit: 'шт.', quantity: gateCount(s.swingCount), unitPrice: unit, amount: unit * gateCount(s.swingCount), manual: s.swingPrice > 0, requiresReview: s.swingPrice > 0 || Number(s.swingWidth) > 5 });
+      for (const gate of swingGatesFor(s)) {
+        const unit = swingUnitFor(gate, prices);
+        if (unit !== null) list.push({ title: 'Каркас распашных ворот ' + gate.width.replace('.', ',') + '×' + s.height.replace('.', ',') + ' м, открывается наружу.', details: ['каркас из профтрубы 40×20, толщина стенки 1,5 мм;', 'столбы 80×80, толщина стенки 3 мм;', 'заглубление на 1,5 м;', 'изнутри запирающее устройство «гусь» с проушинами для замка;', '2 нижних стопора;', 'петли 25×120 мм.'], unit: 'шт.', quantity: gateCount(gate.count), unitPrice: unit, amount: unit * gateCount(gate.count), manual: Number(gate.price) > 0, requiresReview: Number(gate.price) > 0 || Number(gate.width) > 5 });
       }
       if (s.slidingEnabled) {
         const unit = slidingUnitFor(s, prices);
@@ -164,7 +167,7 @@ const calculateQuote = (s: State, prices: PriceCatalog | null) => {
 const autoCalculationName = (state: State) => {
   const parts = [totalLengthFor(state).toLocaleString('ru-RU') + ' м'];
   if (state.mode === 'standard') {
-    const gates = (state.swingEnabled ? gateCount(state.swingCount) : 0) + (state.slidingEnabled ? gateCount(state.slidingCount) : 0);
+    const gates = swingGatesFor(state).reduce((sum, gate) => sum + gateCount(gate.count), 0) + (state.slidingEnabled ? gateCount(state.slidingCount) : 0);
     if (gates > 0) parts.push(gates === 1 ? 'ворота' : 'ворота ×' + gates);
     if (state.wicket !== 'none') parts.push(state.wicketCount === 1 ? 'калитка' : 'калитки ×' + state.wicketCount);
   }
@@ -290,6 +293,7 @@ export default function Home() {
   }, [ready, library, activeId, deleted]);
   const set = <K extends keyof State>(key: K, value: State[K]) => setS(previous => ({ ...previous, [key]: value }));
   const updateSection = (id: string, changes: Partial<FenceSection>) => setS(previous => ({ ...previous, extraSections: previous.extraSections.map(section => section.id === id ? { ...section, ...changes } : section) }));
+  const updateSwingGate = (id: string, changes: Partial<SwingGate>) => setS(previous => ({ ...previous, extraSwingGates: (previous.extraSwingGates ?? []).map(gate => gate.id === id ? { ...gate, ...changes } : gate) }));
   const quote = useMemo(() => { return calculateQuote(s, prices); }, [s, prices]);
   const quoteImage = () => {
     const canvas = document.createElement('canvas');
@@ -428,6 +432,7 @@ export default function Home() {
     (Object.keys(numericRules) as NumericKey[]).forEach(key => {
       if (numericDrafts[key] !== undefined) next[key] = normalizeNumber(key, numericDrafts[key]!) as never;
     });
+    next.extraSwingGates = (next.extraSwingGates ?? []).map(gate => ({ ...gate, count: gateCount(gate.count), price: Math.max(0, Number(gate.price) || 0) }));
     return next;
   };
   const numericInput = (label: string, key: NumericKey, placeholder?: string) => <label>{label}<input id={'field-' + key} type="number" min={numericRules[key].min} step={numericRules[key].integer ? '1' : 'any'} inputMode={numericRules[key].integer ? 'numeric' : 'decimal'} placeholder={placeholder} value={numericValue(key)} onChange={event => updateNumber(key, event.target.value)} onBlur={() => normalizeInput(key)} /></label>;
@@ -440,7 +445,8 @@ export default function Home() {
       const target = targetFor(next, fixedTotalFor(next, prices), prices);
       if (!target.ok) return target.message;
     }
-    if (next.mode === 'standard' && next.swingEnabled && needsManualPrice(next.swingWidth, next.swingPrice)) return `Для распашных ворот шириной ${next.swingWidth.replace('.', ',')} м укажите свою цену за комплект.`;
+    const unpricedSwingGate = next.mode === 'standard' ? swingGatesFor(next).find(gate => swingUnitFor(gate, prices) === null) : undefined;
+    if (unpricedSwingGate) return `Для распашных ворот шириной ${unpricedSwingGate.width.replace('.', ',')} м укажите свою цену за комплект.`;
     if (next.mode === 'standard' && next.slidingEnabled && slidingUnitFor(next, prices) === null) return `Для откатных ворот шириной ${next.slidingWidth.replace('.', ',')} м укажите свою цену за комплект.`;
     return '';
   };
@@ -457,7 +463,7 @@ export default function Home() {
       }
       return;
     }
-    setS(structuredClone(entry.state)); setSavedPrices({ ...entry.prices }); setNumericDrafts({});
+    setS({ ...initial, ...structuredClone(entry.state) }); setSavedPrices({ ...entry.prices }); setNumericDrafts({});
     setActiveId(copy ? null : entry.id); setSaveName(copy ? entry.name + ' — копия' : entry.name);
     setError(''); setResult(false); setLibraryOpen(false);
     setStorageMessage(copy ? 'Копия открыта. Исходный расчёт сохранён.' : `Открыт «${entry.name}». Используются сохранённые цены.`);
@@ -533,8 +539,22 @@ export default function Home() {
       {quote.targetError && <p className="error">{quote.targetError}</p>}
     </section>
     {s.mode === 'standard' && <><section className="card gates-card"><small>02 · Ворота и калитка</small>
-      <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => { set('swingEnabled', event.target.checked); if (event.target.checked) set('swingWidth', '4'); }} /><span>Добавить распашные ворота</span></label>
-      {s.swingEnabled && <><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, руб.', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
+      <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => set('swingEnabled', event.target.checked)} /><span>Добавить распашные ворота</span></label>
+      {s.swingEnabled && <>
+        <p className="hint">Для разной ширины добавьте отдельные ворота. Количество — число комплектов одинаковой ширины.</p>
+        <fieldset className="swing-gate-fields"><legend>Распашные ворота 1</legend><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, руб.', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</fieldset>
+        {(s.extraSwingGates ?? []).map((gate, index) => <fieldset className="swing-gate-fields" key={gate.id}>
+          <legend>Распашные ворота {index + 2}</legend>
+          <div className="grid gate-grid">
+            <label>Ширина, м<select value={gate.width} onChange={event => updateSwingGate(gate.id, { width: event.target.value })}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>
+            <label>Количество распашных ворот<input type="number" min="1" step="1" inputMode="numeric" value={gate.count} onChange={event => updateSwingGate(gate.id, { count: event.target.value === '' ? '' : Number(event.target.value) })} onBlur={() => updateSwingGate(gate.id, { count: gateCount(gate.count) })} /></label>
+          </div>
+          <label>Своя цена распашных ворот за комплект, руб.<input type="number" min="0" step="any" inputMode="decimal" placeholder="По прайсу" value={gate.price || ''} onChange={event => updateSwingGate(gate.id, { price: event.target.value === '' ? '' : Number(event.target.value) })} /><span className="hint">Необязательно: пустое поле использует цену прайса или правило расчёта.</span></label>
+          {swingUnitFor(gate, prices) === null && <p className="price-warning">Для ширины {gate.width.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}
+          <button type="button" className="swing-gate-remove" aria-label={'Удалить распашные ворота ' + (index + 2)} onClick={() => setS(previous => ({ ...previous, extraSwingGates: (previous.extraSwingGates ?? []).filter(item => item.id !== gate.id) }))}>Удалить эти ворота</button>
+        </fieldset>)}
+        <button type="button" className="reset" onClick={() => setS(previous => ({ ...previous, extraSwingGates: [...(previous.extraSwingGates ?? []), { id: crypto.randomUUID(), width: '4', count: 1, price: '' }] }))}>+ Ещё распашные ворота</button>
+      </>}
       <label className="toggle-line"><input type="checkbox" checked={s.slidingEnabled} onChange={event => { set('slidingEnabled', event.target.checked); if (event.target.checked) set('slidingWidth', '4'); }} /><span>Добавить откатные ворота</span></label>
       {s.slidingEnabled && <><label className="toggle-line"><input type="checkbox" checked={s.slidingAutomation} onChange={event => set('slidingAutomation', event.target.checked)} /><span>Автоматика RTech 1000</span></label>{s.slidingAutomation && <p className="hint">Ворота с автоматикой: 4 м — 100 000 руб., 5 м — 110 000 руб. за штуку.</p>}<div className="grid gate-grid">{widths(s.slidingWidth, 'slidingWidth')}{numericInput('Количество откатных ворот', 'slidingCount')}</div>{price('Своя цена откатных ворот за комплект, руб.', 'slidingPrice', 'По прайсу')}{slidingUnitFor(s, prices) === null && <p className="price-warning">Для ширины {s.slidingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</>}
       <label>Калитка<select id="field-wicket" value={s.wicket} onChange={event => set('wicket', event.target.value as Wicket)}><option value="adjacent">Калитка рядом с воротами</option><option value="separate">Калитка отдельно стоящая</option><option value="none">Нет калитки</option></select></label>
