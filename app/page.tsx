@@ -541,10 +541,8 @@ export default function Home() {
     {s.mode === 'standard' && <><section className="card gates-card"><small>02 · Ворота и калитка</small>
       <label className="toggle-line"><input type="checkbox" checked={s.swingEnabled} onChange={event => set('swingEnabled', event.target.checked)} /><span>Добавить распашные ворота</span></label>
       {s.swingEnabled && <>
-        <p className="hint">Для разной ширины добавьте отдельные ворота. Количество — число комплектов одинаковой ширины.</p>
-        <fieldset className="swing-gate-fields"><legend>Распашные ворота 1</legend><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, руб.', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</fieldset>
-        {(s.extraSwingGates ?? []).map((gate, index) => <fieldset className="swing-gate-fields" key={gate.id}>
-          <legend>Распашные ворота {index + 2}</legend>
+        <fieldset className="swing-gate-fields" aria-label="Распашные ворота 1"><div className="grid gate-grid">{widths(s.swingWidth, 'swingWidth')}{numericInput('Количество распашных ворот', 'swingCount')}</div>{price('Своя цена распашных ворот за комплект, руб.', 'swingPrice', 'По прайсу')}{needsManualPrice(s.swingWidth, s.swingPrice) && <p className="price-warning">Для ширины {s.swingWidth.replace('.', ',')} м назначьте свою цену за комплект: автоматической цены нет.</p>}</fieldset>
+        {(s.extraSwingGates ?? []).map((gate, index) => <fieldset className="swing-gate-fields" key={gate.id} aria-label={'Распашные ворота ' + (index + 2)}>
           <div className="grid gate-grid">
             <label>Ширина, м<select value={gate.width} onChange={event => updateSwingGate(gate.id, { width: event.target.value })}>{['3', '3.5', '4', '4.5', '5', '5.5', '6'].map(width => <option key={width} value={width}>{width.replace('.', ',')}</option>)}</select></label>
             <label>Количество распашных ворот<input type="number" min="1" step="1" inputMode="numeric" value={gate.count} onChange={event => updateSwingGate(gate.id, { count: event.target.value === '' ? '' : Number(event.target.value) })} onBlur={() => updateSwingGate(gate.id, { count: gateCount(gate.count) })} /></label>
