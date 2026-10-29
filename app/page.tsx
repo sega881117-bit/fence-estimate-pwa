@@ -16,8 +16,7 @@ const materials = {
   // В текущем утверждённом прайсе этой отдельной позиции нет: цену задают вручную.
   picket_double_single: { label: 'Евроштакетник 2х сторонний, один ряд', heights: ['1.8', '2'], priceKeys: {} },
   picket_chess: { label: 'Евроштакетник, шахматка', heights: ['1.8', '2'], priceKeys: { '1.8': 'picket_chess_1_8', '2': 'picket_chess_2_0' } },
-  // 3D 1,8 м использует согласованный тариф 1,7 м; размер в смете остаётся 1,8 м.
-  mesh3d: { label: '3D-сетка', heights: ['1.7', '1.8', '2'], priceKeys: { '1.7': 'mesh3d_1_7', '1.8': 'mesh3d_1_7', '2': 'mesh3d_2_0' } },
+  mesh3d: { label: '3D-сетка', heights: ['1.7', '2'], priceKeys: { '1.7': 'mesh3d_1_7', '2': 'mesh3d_2_0' } },
   chainlink: { label: 'Сетка-рабица', heights: ['1.8', '2'], priceKeys: { '1.8': 'chainlink_1_8', '2': 'chainlink_2_0' } },
   frame: { label: 'Каркас забора', heights: ['1.8', '2'], priceKeys: {} },
 } as const;
@@ -61,6 +60,13 @@ const swingUnitFor = (gate: SwingGate, prices: PriceCatalog | null): number | nu
 const materialPriceKey = (material: Material, height: string) => (materials[material].priceKeys as Record<string, string>)[height] || '';
 const sectionsFor = (s: State): FenceSection[] => [{ id: 'first', material: s.material, height: s.height, length: s.length, fencePrice: s.fencePrice }, ...s.extraSections];
 const totalLengthFor = (s: State) => sectionsFor(s).reduce((sum, section) => sum + Number(section.length), 0);
+// Old drafts used 1.8 as an alias for the 1.7 tariff. Correct the editable copy,
+// leaving the saved snapshot untouched until a new variant is created.
+const normalizeMeshHeights = (state: State): State => ({
+  ...state,
+  height: state.material === 'mesh3d' && state.height === '1.8' ? '1.7' : state.height,
+  extraSections: state.extraSections.map(section => section.material === 'mesh3d' && section.height === '1.8' ? { ...section, height: '1.7' } : section),
+});
 const sectionUnit = (section: FenceSection, prices: PriceCatalog | null) => Number(section.fencePrice) > 0 ? Number(section.fencePrice) : rate(prices, materialPriceKey(section.material, section.height));
 const targetFor = (s: State, fixedTotal: number, prices: PriceCatalog | null) => {
   const sections = sectionsFor(s);
@@ -202,11 +208,11 @@ export default function Home() {
       const legacy = localStorage.getItem('fence-estimate');
       const draft = raw ? JSON.parse(raw) : null;
       if (draft?.state?.material in materials) {
-        setS({ ...initial, ...draft.state }); setSavedPrices(draft.prices ?? null);
+        setS(normalizeMeshHeights({ ...initial, ...draft.state })); setSavedPrices(draft.prices ?? null);
         setActiveId(draft.activeId ?? null); setSaveName(draft.name ?? '');
       } else if (legacy) {
         const state = JSON.parse(legacy);
-        if (state.material in materials) setS({ ...initial, ...state });
+        if (state.material in materials) setS(normalizeMeshHeights({ ...initial, ...state }));
       }
       const items = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]');
       if (Array.isArray(items)) {
@@ -463,7 +469,7 @@ export default function Home() {
       }
       return;
     }
-    setS({ ...initial, ...structuredClone(entry.state) }); setSavedPrices({ ...entry.prices }); setNumericDrafts({});
+    setS(normalizeMeshHeights({ ...initial, ...structuredClone(entry.state) })); setSavedPrices({ ...entry.prices }); setNumericDrafts({});
     setActiveId(copy ? null : entry.id); setSaveName(copy ? entry.name + ' — копия' : entry.name);
     setError(''); setResult(false); setLibraryOpen(false);
     setStorageMessage(copy ? 'Копия открыта. Исходный расчёт сохранён.' : `Открыт «${entry.name}». Используются сохранённые цены.`);
